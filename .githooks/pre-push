@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+
+import subprocess
+import sys
+
+GITHUB_FILE_LIMIT = 100 * 1024 * 1024
+ZERO_SHA = "0" * 40
+
+
+def git_output(arguments: list[str], input_text: str | None = None) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def main() -> int:
+    oversized: dict[str, tuple[int, str]] = {}
+    try:
+        for update in sys.stdin:
+            local_ref, local_sha, _, remote_sha = update.split()
+            if local_sha == ZERO_SHA:
+                continue
+
+            revision_args = ["rev-list", "--objects", local_sha]
+            if remote_sha != ZERO_SHA:
+                revision_args.extend(["--not", remote_sha])
+            object_paths = {}
+            for entry in git_output(revision_args).splitlines():
+                object_id, _, path = entry.partition(" ")
+                object_paths.setdefault(object_id, path or object_id)
+
+            if not object_paths:
+                continue
+            batch_input = "\n".join(object_paths) + "\n"
+            for record in git_output(
+                ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+                batch_input,
+            ).splitlines():
+                object_id, object_type, size_text = record.split()
+                size = int(size_text)
+                if object_type == "blob" and size >= GITHUB_FILE_LIMIT:
+                    oversized[object_id] = (size, object_paths[object_id])
+    except (ValueError, subprocess.CalledProcessError) as error:
+        detail = getattr(error, "stderr", None)
+        sys.stderr.write(f"Large-file push check failed: {detail or error}\n")
+        return 2
+
+    if oversized:
+        sys.stderr.write("Push blocked: GitHub rejects files at or above 100 MiB:\n")
+        for size, path in sorted(oversized.values(), reverse=True):
+            sys.stderr.write(f"  {size / (1024 * 1024):.2f} MiB  {path}\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

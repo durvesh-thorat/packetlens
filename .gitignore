@@ -1,0 +1,8 @@
+__pycache__/
+*.pcap
+*.egg-info/
+.venv*/
+cicids2017_traffic_label/
+*.csv
+temp.py
+results/*.pcap

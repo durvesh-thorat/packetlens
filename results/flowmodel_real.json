@@ -1,0 +1,141 @@
+{
+  "retained_rows": 191033,
+  "counts": {
+    "train": {
+      "Bot": 1299,
+      "BENIGN": 113320
+    },
+    "test": {
+      "Bot": 667,
+      "BENIGN": 75747
+    }
+  },
+  "exact_test_feature_vectors_in_training": {
+    "Bot": 81,
+    "BENIGN": 5902
+  },
+  "dropped_labels": 0,
+  "results": [
+    {
+      "model": "Dummy stratified",
+      "metrics": {
+        "precision": 0.0068,
+        "recall": 0.009,
+        "f1": 0.0078,
+        "average_precision": 0.0087,
+        "tn": 74877,
+        "fp": 870,
+        "fn": 661,
+        "tp": 6,
+        "fp_per_1000_benign": 11.49
+      }
+    },
+    {
+      "model": "Logistic regression",
+      "metrics": {
+        "precision": 0.1536,
+        "recall": 0.9955,
+        "f1": 0.2661,
+        "average_precision": 0.1226,
+        "tn": 72088,
+        "fp": 3659,
+        "fn": 3,
+        "tp": 664,
+        "fp_per_1000_benign": 48.31
+      }
+    },
+    {
+      "model": "Random forest",
+      "metrics": {
+        "precision": 0.6604,
+        "recall": 0.2624,
+        "f1": 0.3755,
+        "average_precision": 0.2682,
+        "tn": 75657,
+        "fp": 90,
+        "fn": 492,
+        "tp": 175,
+        "fp_per_1000_benign": 1.19
+      }
+    },
+    {
+      "model": "Isolation Forest (BENIGN-only)",
+      "metrics": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "average_precision": 0.0171,
+        "tn": 69955,
+        "fp": 5792,
+        "fn": 667,
+        "tp": 0,
+        "fp_per_1000_benign": 76.47
+      }
+    },
+    {
+      "model": "with Destination Port (shortcut risk)",
+      "metrics": {
+        "precision": 0.7085,
+        "recall": 0.2624,
+        "f1": 0.3829,
+        "average_precision": 0.4224,
+        "tn": 75675,
+        "fp": 72,
+        "fn": 492,
+        "tp": 175,
+        "fp_per_1000_benign": 0.95
+      }
+    }
+  ],
+  "top_10_feature_importances": [
+    {
+      "feature": "Init_Win_bytes_backward",
+      "importance": 0.152139
+    },
+    {
+      "feature": "Avg Bwd Segment Size",
+      "importance": 0.100833
+    },
+    {
+      "feature": "Bwd Packet Length Mean",
+      "importance": 0.099925
+    },
+    {
+      "feature": "Init_Win_bytes_forward",
+      "importance": 0.092373
+    },
+    {
+      "feature": "Average Packet Size",
+      "importance": 0.048578
+    },
+    {
+      "feature": "Subflow Bwd Bytes",
+      "importance": 0.041136
+    },
+    {
+      "feature": "Packet Length Mean",
+      "importance": 0.031303
+    },
+    {
+      "feature": "Flow Bytes/s",
+      "importance": 0.030698
+    },
+    {
+      "feature": "Total Length of Bwd Packets",
+      "importance": 0.030423
+    },
+    {
+      "feature": "Bwd Packet Length Max",
+      "importance": 0.030164
+    }
+  ],
+  "seed": 42,
+  "train_frac": 0.6,
+  "bin_width": null,
+  "library_versions": {
+    "python": "3.14.6",
+    "numpy": "2.5.2",
+    "pandas": "3.0.5",
+    "scikit-learn": "1.9.0"
+  }
+}

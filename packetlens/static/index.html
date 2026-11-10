@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PacketLens</title>
+<style>
+:root{--bg:#f4f1ea;--ink:#1b2a3a;--mute:#6b7683;--line:#d9d3c5;--sig:#1f5f9e;--sig2:#3d8b6e;--high:#c2410c;--med:#b7791f;--panel:#fbf9f4}
+@media(prefers-color-scheme:dark){:root{--bg:#10171f;--ink:#e6edf3;--mute:#8b98a7;--line:#263341;--sig:#6cb0f0;--sig2:#6fcf9f;--high:#ff8a5b;--med:#e6b450;--panel:#151e28}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1180px;margin:0 auto;padding:20px 20px 48px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 28px;padding-bottom:14px;border-bottom:2px solid var(--ink)}
+h1{margin:0;font:700 22px/1 ui-serif,Georgia,serif;letter-spacing:.2px}
+.live{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--sig2);margin-right:6px;animation:p 1.6s infinite}
+.live.off{background:var(--high);animation:none}
+@keyframes p{50%{opacity:.35}}
+.stat{color:var(--mute);font-size:13px}.stat b{color:var(--ink);font-size:17px;margin-right:4px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--mute);margin:26px 0 8px;font-weight:600}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px}
+canvas{width:100%;display:block}
+#c1{height:230px}#c2{height:110px}
+.cols{display:grid;grid-template-columns:1.6fr 1fr;gap:28px}
+@media(max-width:820px){.cols{grid-template-columns:1fr}}
+.alert{display:grid;grid-template-columns:78px 92px 1fr;gap:4px 12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.alert .k{font-weight:600}.alert .d{grid-column:2/4;color:var(--mute);font-size:13px}
+.sev{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.sev.high{background:var(--high)}.sev.medium{background:var(--med)}.sev.low{background:var(--mute)}
+.empty{color:var(--mute);padding:14px 0}
+.row{display:grid;grid-template-columns:70px 1fr 64px;gap:10px;align-items:center;padding:4px 0;font-size:14px}
+.bar{height:8px;background:var(--line);border-radius:2px;overflow:hidden}.bar i{display:block;height:100%;background:var(--sig)}
+.row .n{text-align:right;color:var(--mute)}
+.talk{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:14px}
+.talk span:first-child{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}.talk span:last-child{color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1><span class="live" id="live"></span>PacketLens</h1>
+  <span class="stat"><b id="pk">0</b>packets</span>
+  <span class="stat"><b id="by">0</b>bytes</span>
+  <span class="stat"><b id="mf">0</b>malformed</span>
+  <span class="stat"><b id="al">0</b>alerts</span>
+</header>
+
+<h2>Packets per second <span style="text-transform:none;letter-spacing:0">(flags mark alerts)</span></h2>
+<div class="chart"><canvas id="c1"></canvas></div>
+<h2>Bytes per second</h2>
+<div class="chart"><canvas id="c2"></canvas></div>
+
+<div class="cols">
+  <section><h2>Alerts</h2><div id="alerts"><div class="empty">No alerts yet.</div></div></section>
+  <section>
+    <h2>Protocol mix</h2><div id="proto"></div>
+    <h2>Top talkers</h2><div id="talk"></div>
+  </section>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const human = n => n >= 1e9 ? (n/1e9).toFixed(1)+" GB" : n >= 1e6 ? (n/1e6).toFixed(1)+" MB" : n >= 1e3 ? (n/1e3).toFixed(1)+" KB" : n+" B";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function draw(canvas, bins, key, color, alerts, fmt) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const c = canvas.getContext("2d"); c.scale(dpr, dpr); c.clearRect(0, 0, w, h);
+  const padL = 52, padB = 18, vals = bins.map(b => b[key]);
+  const max = Math.max(1, ...vals) * 1.12, pw = w - padL - 6, ph = h - padB - 6;
+  const X = i => padL + (bins.length < 2 ? 0 : i * pw / (bins.length - 1)), Y = v => 6 + ph - v / max * ph;
+  c.font = "11px ui-sans-serif,system-ui"; c.textAlign = "right"; c.fillStyle = css("--mute"); c.strokeStyle = css("--line"); c.lineWidth = 1;
+  for (let g = 0; g <= 3; g++) {
+    const v = max * g / 3, y = Y(v);
+    c.beginPath(); c.moveTo(padL, y); c.lineTo(w - 6, y); c.stroke();
+    c.fillText(fmt(v), padL - 6, y + 4);
+  }
+  if (bins.length < 2) return;
+  c.beginPath(); vals.forEach((v, i) => i ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v)));
+  c.strokeStyle = color; c.lineWidth = 1.8; c.stroke();
+  c.lineTo(X(vals.length - 1), Y(0)); c.lineTo(X(0), Y(0)); c.closePath(); c.globalAlpha = .12; c.fillStyle = color; c.fill(); c.globalAlpha = 1;
+  alerts.forEach(a => {
+    const i = bins.findIndex(b => a.ts >= b.t && a.ts < b.t + 1);
+    if (i < 0) return;
+    c.strokeStyle = css(a.severity === "high" ? "--high" : "--med"); c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(X(i), 6); c.lineTo(X(i), 6 + ph); c.stroke();
+    c.fillStyle = c.strokeStyle; c.fillRect(X(i), 6, 5, 5);
+  });
+  c.fillStyle = css("--mute"); c.textAlign = "left"; c.fillText("-" + bins.length + "s", padL, h - 3);
+  c.textAlign = "right"; c.fillText("now", w - 6, h - 3);
+}
+
+async function tick() {
+  try {
+    const s = await (await fetch("/api/snapshot", {cache: "no-store"})).json();
+    $("live").className = "live";
+    $("pk").textContent = s.total_packets.toLocaleString(); $("by").textContent = human(s.total_bytes);
+    $("mf").textContent = s.malformed; $("al").textContent = s.alerts.length;
+    draw($("c1"), s.bins, "packets", css("--sig"), s.alerts, v => Math.round(v));
+    draw($("c2"), s.bins, "bytes", css("--sig2"), s.alerts, v => human(Math.round(v)));
+    $("alerts").innerHTML = s.alerts.length ? s.alerts.map(a =>
+      `<div class="alert"><span><span class="sev ${esc(a.severity)}"></span>${new Date(a.ts*1000).toLocaleTimeString()}</span>` +
+      `<span class="k">${esc(a.kind)}</span><span>${esc(a.src)}</span><span class="d">${esc(a.detail)}</span></div>`).join("")
+      : '<div class="empty">No alerts yet.</div>';
+    const total = Object.values(s.protocols).reduce((x, y) => x + y, 0) || 1;
+    $("proto").innerHTML = Object.entries(s.protocols).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+      `<div class="row"><span>${esc(k)}</span><span class="bar"><i style="width:${(v/total*100).toFixed(1)}%"></i></span><span class="n">${(v/total*100).toFixed(1)}%</span></div>`).join("");
+    $("talk").innerHTML = s.talkers.map(([ip, b]) => `<div class="talk"><span>${esc(ip)}</span><span>${human(b)}</span></div>`).join("");
+  } catch (e) { $("live").className = "live off"; }
+}
+tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>
