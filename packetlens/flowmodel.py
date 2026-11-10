@@ -1,4 +1,4 @@
-"""Per-flow Bot classification experiment for CIC-IDS2017 (optional dependencies)."""
+"""Per-flow attack classification experiment for CIC-IDS2017 (optional dependencies)."""
 import csv
 import ipaddress
 import json
@@ -63,8 +63,17 @@ IDENTIFIER_COLUMNS = {
 }
 
 
-def load_flow_data(path):
-    """Load all fields, clean CIC-IDS2017 quirks, and retain only Bot and BENIGN flows."""
+def _normalize_attack_label(attack_label):
+    label = str(attack_label).strip()
+    if not label or label.upper() == "BENIGN":
+        raise ValueError("attack label must be a non-empty label other than BENIGN")
+    return "Bot" if label.upper() == "BOT" else label
+
+
+def load_flow_data(path, attack_label="Bot"):
+    """Load all fields, clean CIC-IDS2017 quirks, and retain one attack label plus BENIGN."""
+    attack_label = _normalize_attack_label(attack_label)
+    attack_key = attack_label.upper()
     path = Path(path)
     with path.open(encoding="latin-1", newline="") as source:
         original_columns = next(csv.reader(source), None)
@@ -92,10 +101,11 @@ def load_flow_data(path):
     normalized_labels = (df["Label"].astype(str).str.replace(r"[^\x20-\x7e]", "-", regex=True)
                          .str.replace(r"-+", "-", regex=True).str.strip())
     normalized_upper = normalized_labels.str.upper()
-    recognized = normalized_upper.isin({"BOT", "BENIGN"})
+    recognized = normalized_upper.isin({attack_key, "BENIGN"})
     dropped_labels = int((~recognized).sum())
     df = df.loc[recognized].copy()
     normalized_upper = normalized_upper.loc[recognized]
+    normalized_labels = normalized_labels.loc[recognized]
     timestamps = pd.to_datetime(df["Timestamp"], dayfirst=True, errors="coerce")
     if timestamps.isna().mean() > 0.01:
         raise ValueError(f"{path}: more than 1% of timestamps could not be parsed")
@@ -106,7 +116,7 @@ def load_flow_data(path):
     timestamps = timestamps.where(timestamps.dt.hour >= 8, timestamps + pd.Timedelta(hours=12))
     df["ts"] = timestamps
     df["label"] = normalized_labels
-    df["target"] = normalized_upper.map({"BENIGN": 0, "BOT": 1}).astype(int)
+    df["target"] = normalized_upper.map({"BENIGN": 0, attack_key: 1}).astype(int)
 
     non_numeric = IDENTIFIER_COLUMNS | {"Label", "label", "target", "ts"}
     for column in df.columns:
@@ -364,7 +374,7 @@ def _fit_isolation_metrics(train_labels, x_train, x_test, test_labels):
     benign = x_train[np.asarray(train_labels) == 0]
     if not len(benign):
         raise ValueError("Isolation Forest requires BENIGN rows in its fitting split")
-    model = _call_model(IsolationForest(random_state=RANDOM_STATE).fit, benign)
+    model = _call_model(IsolationForest(random_state=RANDOM_STATE, n_jobs=1).fit, benign)
     prediction = _call_model(model.predict, x_test) == -1
     score = -_call_model(model.decision_function, x_test)
     return _metrics(test_labels, prediction, score)
@@ -551,32 +561,36 @@ def _print_cleaner_split(label, train, test, held_out_ips, candidates):
 
 
 def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=False,
-                   audit_labels=False, save_path=None):
-    df, dropped_labels = load_flow_data(path)
+                   audit_labels=False, save_path=None, attack_label="Bot"):
+    attack_label = _normalize_attack_label(attack_label)
+    if attack_label.upper() != "BOT" and (extended or diagnose or audit_labels):
+        raise ValueError("extended, diagnose, and audit-labels currently require --attack-label Bot")
+    df, dropped_labels = load_flow_data(path, attack_label)
     if df.empty or df["target"].nunique() != 2:
-        raise ValueError("the retained data must contain both BENIGN and Bot flows")
+        raise ValueError(f"the retained data must contain both BENIGN and {attack_label} flows")
     train, test = time_split(df, train_frac)
     y_train, y_test = train["target"].to_numpy(), test["target"].to_numpy()
     if set(np.unique(y_train)) != {0, 1}:
-        raise ValueError("the training time split must contain both BENIGN and Bot flows")
+        raise ValueError(f"the training time split must contain both BENIGN and {attack_label} flows")
 
     train_features, test_features, names = _prepare_features(
         train, test, feature_columns(df))
     matches = _matching_training_rows(train_features, test_features)
 
     counts = {
-        "train": {label: int((y_train == value).sum()) for label, value in (("Bot", 1), ("BENIGN", 0))},
-        "test": {label: int((y_test == value).sum()) for label, value in (("Bot", 1), ("BENIGN", 0))},
+        "train": {label: int((y_train == value).sum()) for label, value in ((attack_label, 1), ("BENIGN", 0))},
+        "test": {label: int((y_test == value).sum()) for label, value in ((attack_label, 1), ("BENIGN", 0))},
     }
-    print(f"Rows: {len(df):,} retained; {dropped_labels:,} rows dropped for labels other than Bot/BENIGN")
-    print("\n| split | Bot | BENIGN |")
+    print(f"Rows: {len(df):,} retained; {dropped_labels:,} rows dropped for labels other than "
+          f"{attack_label}/BENIGN")
+    print(f"\n| split | {attack_label} | BENIGN |")
     print("|---|---:|---:|")
     for split in ("train", "test"):
-        print(f"| {split} | {counts[split]['Bot']:,} | {counts[split]['BENIGN']:,} |")
-    if counts["test"]["Bot"] < 50:
-        print(f"\n*** WARNING: only {counts['test']['Bot']} Bot flows in the test part (<50). ***")
+        print(f"| {split} | {counts[split][attack_label]:,} | {counts[split]['BENIGN']:,} |")
+    if counts["test"][attack_label] < 50:
+        print(f"\n*** WARNING: only {counts['test'][attack_label]} {attack_label} flows in the test part (<50). ***")
     print("\nExact test feature vectors also present in training:")
-    print(f"Bot: {int(matches[y_test == 1].sum())}; BENIGN: {int(matches[y_test == 0].sum())}")
+    print(f"{attack_label}: {int(matches[y_test == 1].sum())}; BENIGN: {int(matches[y_test == 0].sum())}")
 
     dummy = _call_model(DummyClassifier(strategy="stratified", random_state=RANDOM_STATE).fit,
                         train_features, y_train)
@@ -641,7 +655,7 @@ def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=F
             "retained_rows": len(df),
             "counts": counts,
             "exact_test_feature_vectors_in_training": {
-                "Bot": int(matches[y_test == 1].sum()),
+                attack_label: int(matches[y_test == 1].sum()),
                 "BENIGN": int(matches[y_test == 0].sum()),
             },
             "dropped_labels": dropped_labels,
@@ -668,6 +682,8 @@ def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=F
                 "scikit-learn": version("scikit-learn"),
             },
         }
+        if attack_label != "Bot":
+            payload["attack_label"] = attack_label
         if audit is not None:
             payload["audit"] = audit
         output_path = Path(save_path)

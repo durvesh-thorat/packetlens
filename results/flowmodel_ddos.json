@@ -1,0 +1,142 @@
+{
+  "retained_rows": 225745,
+  "counts": {
+    "train": {
+      "DDoS": 86729,
+      "BENIGN": 48718
+    },
+    "test": {
+      "DDoS": 41298,
+      "BENIGN": 49000
+    }
+  },
+  "exact_test_feature_vectors_in_training": {
+    "DDoS": 5,
+    "BENIGN": 2135
+  },
+  "dropped_labels": 0,
+  "results": [
+    {
+      "model": "Dummy stratified",
+      "metrics": {
+        "precision": 0.4587,
+        "recall": 0.642,
+        "f1": 0.5351,
+        "average_precision": 0.4582,
+        "tn": 17720,
+        "fp": 31280,
+        "fn": 14786,
+        "tp": 26512,
+        "fp_per_1000_benign": 638.37
+      }
+    },
+    {
+      "model": "Logistic regression",
+      "metrics": {
+        "precision": 0.9978,
+        "recall": 0.998,
+        "f1": 0.9979,
+        "average_precision": 0.9991,
+        "tn": 48908,
+        "fp": 92,
+        "fn": 83,
+        "tp": 41215,
+        "fp_per_1000_benign": 1.88
+      }
+    },
+    {
+      "model": "Random forest",
+      "metrics": {
+        "precision": 0.9997,
+        "recall": 0.9988,
+        "f1": 0.9992,
+        "average_precision": 0.9997,
+        "tn": 48987,
+        "fp": 13,
+        "fn": 50,
+        "tp": 41248,
+        "fp_per_1000_benign": 0.27
+      }
+    },
+    {
+      "model": "Isolation Forest (BENIGN-only)",
+      "metrics": {
+        "precision": 0.7827,
+        "recall": 0.5472,
+        "f1": 0.6441,
+        "average_precision": 0.6814,
+        "tn": 42725,
+        "fp": 6275,
+        "fn": 18698,
+        "tp": 22600,
+        "fp_per_1000_benign": 128.06
+      }
+    },
+    {
+      "model": "with Destination Port (shortcut risk)",
+      "metrics": {
+        "precision": 0.9979,
+        "recall": 0.9992,
+        "f1": 0.9985,
+        "average_precision": 0.9998,
+        "tn": 48912,
+        "fp": 88,
+        "fn": 32,
+        "tp": 41266,
+        "fp_per_1000_benign": 1.8
+      }
+    }
+  ],
+  "top_10_feature_importances": [
+    {
+      "feature": "Fwd Packet Length Max",
+      "importance": 0.102262
+    },
+    {
+      "feature": "Avg Fwd Segment Size",
+      "importance": 0.066658
+    },
+    {
+      "feature": "Fwd Packet Length Mean",
+      "importance": 0.066089
+    },
+    {
+      "feature": "Init_Win_bytes_forward",
+      "importance": 0.065737
+    },
+    {
+      "feature": "act_data_pkt_fwd",
+      "importance": 0.051538
+    },
+    {
+      "feature": "Bwd Packet Length Std",
+      "importance": 0.043893
+    },
+    {
+      "feature": "Subflow Fwd Packets",
+      "importance": 0.041985
+    },
+    {
+      "feature": "Avg Bwd Segment Size",
+      "importance": 0.038089
+    },
+    {
+      "feature": "Subflow Fwd Bytes",
+      "importance": 0.038065
+    },
+    {
+      "feature": "Total Fwd Packets",
+      "importance": 0.03414
+    }
+  ],
+  "seed": 42,
+  "train_frac": 0.6,
+  "bin_width": null,
+  "library_versions": {
+    "python": "3.12.10",
+    "numpy": "1.26.4",
+    "pandas": "3.0.6",
+    "scikit-learn": "1.9.1"
+  },
+  "attack_label": "DDoS"
+}

@@ -47,15 +47,47 @@
         "DDoS": 0.9,
         "PortScan": 0.35
       }
+    },
+    "granite": {
+      "tp": 20,
+      "fp": 8,
+      "fn": 132,
+      "precision": 0.714,
+      "recall": 0.132,
+      "f1": 0.222,
+      "false_alarms_per_hour_on_clean": 1.23,
+      "recall_by_attack": {
+        "Bot": 0.02,
+        "DDoS": 0.38,
+        "PortScan": 0.5
+      }
     }
+  },
+  "granite": {
+    "revision": "90-30-ft-l1-r2.1",
+    "context_length": 90,
+    "horizon": 30,
+    "feature": "flows",
+    "false_alarm_budget_per_hour": 1.0,
+    "threshold": 4.308190091931661,
+    "residual_spread": 383.07093512825924,
+    "calibration_bins": 292,
+    "calibration_residuals": 202,
+    "calibration_hours": 3.3666666666666667,
+    "library_versions": {
+      "granite-tsfm": "0.2.22",
+      "torch": "2.15.0+cpu",
+      "transformers": "4.48.3"
+    },
+    "unscored_attack_prefix_bins": 90
   },
   "seed": 0,
   "train_frac": 0.6,
   "bin_width": "1min",
   "library_versions": {
-    "python": "3.14.6",
-    "numpy": "2.5.2",
-    "pandas": "3.0.5",
-    "scikit-learn": "1.9.0"
+    "python": "3.12.10",
+    "numpy": "1.26.4",
+    "pandas": "3.0.6",
+    "scikit-learn": "1.9.1"
   }
 }
