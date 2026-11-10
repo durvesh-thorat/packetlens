@@ -1,0 +1,71 @@
+{
+  "duration_s": 300,
+  "packets_benign": 55291,
+  "packets_attack": 92364,
+  "events": [
+    {
+      "event": "port_scan_fast",
+      "detector": "port_scan",
+      "detected": true,
+      "delay_s": 0.0
+    },
+    {
+      "event": "port_scan_slow",
+      "detector": "port_scan",
+      "detected": true,
+      "delay_s": 59.0
+    },
+    {
+      "event": "dns_tunnel",
+      "detector": "dns_tunnel",
+      "detected": true,
+      "delay_s": 3.6
+    },
+    {
+      "event": "syn_flood",
+      "detector": "syn_flood",
+      "detected": true,
+      "delay_s": 0.1
+    },
+    {
+      "event": "udp_flood",
+      "detector": "volumetric",
+      "detected": true,
+      "delay_s": 0.0
+    },
+    {
+      "event": "arp_spoof",
+      "detector": "arp_spoof",
+      "detected": true,
+      "delay_s": 0.0
+    }
+  ],
+  "alerts_total": 9,
+  "alerts_in_attack_windows": 8,
+  "alert_precision": 0.889,
+  "false_positives_on_clean_traffic": {
+    "volumetric": 1
+  },
+  "false_positives_per_hour": 12.0,
+  "false_positive_details": [
+    "packets 523/s vs baseline 192 (z=7.4); bytes 435250/s vs baseline 88360 (z=15.1)"
+  ],
+  "bin_level_volume_detectors": {
+    "zscore_adaptive": {
+      "tp": 16,
+      "fp": 5,
+      "fn": 5,
+      "precision": 0.762,
+      "recall": 0.762,
+      "f1": 0.762
+    },
+    "isolation_forest": {
+      "tp": 13,
+      "fp": 2,
+      "fn": 8,
+      "precision": 0.867,
+      "recall": 0.619,
+      "f1": 0.722
+    }
+  }
+}

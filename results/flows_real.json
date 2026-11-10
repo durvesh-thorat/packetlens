@@ -1,0 +1,61 @@
+{
+  "bins": {
+    "train": 292,
+    "clean_holdout": 195,
+    "attack_set": 484,
+    "attack_bins": 152
+  },
+  "methods": {
+    "zscore_adaptive": {
+      "tp": 12,
+      "fp": 11,
+      "fn": 140,
+      "precision": 0.522,
+      "recall": 0.079,
+      "f1": 0.137,
+      "false_alarms_per_hour_on_clean": 1.23,
+      "recall_by_attack": {
+        "Bot": 0.0,
+        "DDoS": 0.1,
+        "PortScan": 0.5
+      }
+    },
+    "zscore_frozen": {
+      "tp": 33,
+      "fp": 20,
+      "fn": 119,
+      "precision": 0.623,
+      "recall": 0.217,
+      "f1": 0.322,
+      "false_alarms_per_hour_on_clean": 1.54,
+      "recall_by_attack": {
+        "Bot": 0.03,
+        "DDoS": 0.9,
+        "PortScan": 0.55
+      }
+    },
+    "isolation_forest": {
+      "tp": 26,
+      "fp": 0,
+      "fn": 126,
+      "precision": 1.0,
+      "recall": 0.171,
+      "f1": 0.292,
+      "false_alarms_per_hour_on_clean": 0.0,
+      "recall_by_attack": {
+        "Bot": 0.0,
+        "DDoS": 0.9,
+        "PortScan": 0.35
+      }
+    }
+  },
+  "seed": 0,
+  "train_frac": 0.6,
+  "bin_width": "1min",
+  "library_versions": {
+    "python": "3.14.6",
+    "numpy": "2.5.2",
+    "pandas": "3.0.5",
+    "scikit-learn": "1.9.0"
+  }
+}
