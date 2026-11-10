@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .evaluate import _prf
-from .ml import IsolationForestDetector
+from .ml import GraniteForecastDetector, IsolationForestDetector
 from .timeseries import EwmaZScoreDetector
 
 try:
@@ -94,7 +94,9 @@ def _records(series):
 
 
 def evaluate_flows(benign_paths, attack_paths, freq="1min", train_frac=0.6, min_attack_flows=5, z=6.0,
-                   contamination=0.01):
+                   contamination=0.01, granite=False):
+    if granite and freq != "1min":
+        raise ValueError("Granite forecasting requires one-minute bins (--freq 1min)")
     ben, _ = to_series(load_flows(benign_paths), freq, min_attack_flows)
     atk, label_bins = to_series(load_flows(attack_paths), freq, min_attack_flows)
     cut = int(len(ben) * train_frac)
@@ -123,13 +125,27 @@ def evaluate_flows(benign_paths, attack_paths, freq="1min", train_frac=0.6, min_
     except RuntimeError:
         pass
 
+    granite_detector = None
+    if granite:
+        granite_detector = GraniteForecastDetector().fit(train)
+        clean_history = train[-granite_detector.CONTEXT_LENGTH:]
+        preds["granite"] = (granite_detector.predict(clean, history=clean_history),
+                            granite_detector.predict(test))
+
     result = {"bins": {"train": len(train), "clean_holdout": len(clean), "attack_set": len(test),
                        "attack_bins": sum(truth)}, "methods": {}}
+    if granite_detector is not None:
+        result["granite"] = {
+            **granite_detector.metadata,
+            "unscored_attack_prefix_bins": min(len(test), granite_detector.CONTEXT_LENGTH),
+        }
     for name, (pc, pa) in preds.items():
         flagged = {t for t, p in zip(atk_index, pa) if p}
+        clean_hours = (len(clean) * pd.Timedelta(freq).total_seconds() / 3600
+                       if name == "granite" else hours_clean)
         result["methods"][name] = {
             **_prf(truth, pa),
-            "false_alarms_per_hour_on_clean": round(sum(pc) / hours_clean, 2) if hours_clean else None,
+            "false_alarms_per_hour_on_clean": round(sum(pc) / clean_hours, 2) if clean_hours else None,
             "recall_by_attack": {lab: round(len(bins & flagged) / len(bins), 2) for lab, bins in sorted(label_bins.items())},
         }
     return result
@@ -148,6 +164,11 @@ def print_report(r):
         print("| attack | " + " | ".join(r["methods"]) + " |\n|---|" + "---|" * len(r["methods"]))
         for lab in labels:
             print(f"| {lab} | " + " | ".join(str(m["recall_by_attack"].get(lab, "-")) for m in r["methods"].values()) + " |")
+    if "granite" in r:
+        g = r["granite"]
+        print(f"\nGranite revision: {g['revision']} (context {g['context_length']}, horizon {g['horizon']} bins)")
+        print(f"False-alarm budget: {g['false_alarm_budget_per_hour']} per hour (Monday train only)")
+        print("Caveat: forecast context can contain attack bins (the adaptive-baseline pollution problem).")
 
 
 def save_report(result, path, train_frac, freq):

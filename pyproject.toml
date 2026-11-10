@@ -8,6 +8,14 @@ dependencies = []
 
 [project.optional-dependencies]
 ml = ["scikit-learn", "numpy", "pandas"]
+granite = [
+    "torch",
+    "granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git@v0.2.22",
+    "datasets<4",
+    "pyarrow<20",
+    "transformers==4.48.3",
+    "huggingface-hub<1",
+]
 
 [project.scripts]
 packetlens = "packetlens.cli:main"

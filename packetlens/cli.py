@@ -92,7 +92,8 @@ def cmd_evaluate(a):
 
 def cmd_flows(a):
     from .flows import evaluate_flows, print_report, save_report
-    result = evaluate_flows(a.benign, a.attack, a.freq, a.train_frac, a.min_attack_flows, a.z)
+    result = evaluate_flows(a.benign, a.attack, a.freq, a.train_frac, a.min_attack_flows, a.z,
+                            granite=a.granite)
     print_report(result)
     if a.save:
         save_report(result, a.save, a.train_frac, a.freq)
@@ -100,7 +101,8 @@ def cmd_flows(a):
 
 def cmd_flowmodel(a):
     from .flowmodel import run_experiment
-    run_experiment(a.file, a.train_frac, a.extended, a.diagnose, a.audit_labels, a.save)
+    run_experiment(a.file, a.train_frac, a.extended, a.diagnose, a.audit_labels, a.save,
+                   attack_label=a.attack_label)
 
 
 def cmd_bench(a):
@@ -150,11 +152,13 @@ def main(argv=None):
     s.add_argument("--train-frac", type=float, default=0.6)
     s.add_argument("--min-attack-flows", type=int, default=5)
     s.add_argument("--z", type=float, default=6.0)
+    s.add_argument("--granite", action="store_true", help="add zero-shot Granite forecasts (requires the granite extra)")
     s.add_argument("--save", help="write the printed results and run metadata as JSON")
     s.set_defaults(fn=cmd_flows)
 
-    s = sub.add_parser("flowmodel", help="per-flow Bot classifier on CIC-IDS2017 (needs pandas and scikit-learn)")
+    s = sub.add_parser("flowmodel", help="per-flow attack classifier on CIC-IDS2017 (needs pandas and scikit-learn)")
     s.add_argument("--file", default="cicids2017_traffic_label/Friday-WorkingHours-Morning.pcap_ISCX.csv")
+    s.add_argument("--attack-label", default="Bot", help="attack label to compare with BENIGN (default: Bot)")
     s.add_argument("--train-frac", type=float, default=0.6)
     s.add_argument("--extended", action="store_true", help="run threshold, machine, duplicate, and feature-ablation experiments")
     s.add_argument("--diagnose", action="store_true", help="run source-IP leakage diagnostic experiments")
