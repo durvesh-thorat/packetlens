@@ -54,6 +54,11 @@ class PcapReader:
             if len(h) < 16:
                 raise PcapError("truncated pcap record header")
             sec, frac, incl, orig = rec.unpack(h)
+            if frac >= self._res:
+                raise PcapError(
+                    f"pcap timestamp fraction {frac} is outside declared resolution "
+                    f"{self._res:g}"
+                )
             if incl > orig:
                 raise PcapError(
                     f"pcap captured length {incl} exceeds original length {orig}"
