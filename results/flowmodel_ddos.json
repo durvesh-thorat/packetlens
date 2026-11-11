@@ -14,6 +14,36 @@
     "DDoS": 5,
     "BENIGN": 2135
   },
+  "duplicate_check": {
+    "per_class": {
+      "DDoS": {
+        "test_rows": 41298,
+        "exact_duplicates": 5,
+        "exact_duplicate_rate": 0.000121,
+        "duplicate_free_rows": 41293
+      },
+      "BENIGN": {
+        "test_rows": 49000,
+        "exact_duplicates": 2135,
+        "exact_duplicate_rate": 0.043571,
+        "duplicate_free_rows": 46865
+      }
+    },
+    "duplicate_free_test": {
+      "rows": 88158,
+      "metrics": {
+        "precision": 0.9997,
+        "recall": 0.9988,
+        "f1": 0.9992,
+        "average_precision": 0.9997,
+        "tn": 46852,
+        "fp": 13,
+        "fn": 50,
+        "tp": 41243,
+        "fp_per_1000_benign": 0.28
+      }
+    }
+  },
   "dropped_labels": 0,
   "results": [
     {
@@ -55,7 +85,46 @@
         "fp": 13,
         "fn": 50,
         "tp": 41248,
-        "fp_per_1000_benign": 0.27
+        "fp_per_1000_benign": 0.27,
+        "false_alarms_per_hour": 14.444444,
+        "bootstrap": {
+          "precision": {
+            "value": 0.999685,
+            "ci95": [
+              0.999048,
+              0.999886
+            ],
+            "n": 54,
+            "note": null
+          },
+          "recall": {
+            "value": 0.998789,
+            "ci95": [
+              0.994816,
+              0.999952
+            ],
+            "n": 54,
+            "note": null
+          },
+          "f1": {
+            "value": 0.999237,
+            "ci95": [
+              0.997058,
+              0.999844
+            ],
+            "n": 54,
+            "note": null
+          },
+          "false_alarms_per_hour": {
+            "value": 14.444444,
+            "ci95": [
+              4.972222,
+              26.666667
+            ],
+            "n": 54,
+            "note": null
+          }
+        }
       }
     },
     {
@@ -138,5 +207,29 @@
     "pandas": "3.0.6",
     "scikit-learn": "1.9.1"
   },
-  "attack_label": "DDoS"
+  "attack_label": "DDoS",
+  "meta": {
+    "command_line": "python -m packetlens reproduce --write",
+    "utc_time": "2026-11-11T07:54:18Z",
+    "versions": {
+      "python": "3.12.10",
+      "numpy": "1.26.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1"
+    },
+    "seeds": {
+      "random_forest": 42,
+      "isolation_forest": 42,
+      "bootstrap": 42
+    },
+    "dataset_files": [
+      {
+        "name": "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 96101069,
+        "sha256": "1f779b4f0d78f9225554c4de53b5a2c07912b60dcd136ee4c5c1d0d2496b7cc4"
+      }
+    ],
+    "skipped": []
+  }
 }

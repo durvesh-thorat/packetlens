@@ -18,6 +18,133 @@
         "Bot": 0.0,
         "DDoS": 0.1,
         "PortScan": 0.5
+      },
+      "bootstrap": {
+        "precision": {
+          "value": 0.522,
+          "ci95": [
+            0.19,
+            0.833
+          ],
+          "n": 484,
+          "note": null
+        },
+        "recall": {
+          "value": 0.079,
+          "ci95": [
+            0.02,
+            0.157
+          ],
+          "n": 484,
+          "note": null
+        },
+        "f1": {
+          "value": 0.137,
+          "ci95": [
+            0.037,
+            0.255
+          ],
+          "n": 484,
+          "note": null
+        },
+        "false_alarms_per_hour": {
+          "value": 1.23,
+          "ci95": [
+            0.0,
+            2.77
+          ],
+          "n": 195,
+          "note": null
+        }
+      },
+      "bootstrap_by_attack": {
+        "Bot": {
+          "precision": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "DDoS": {
+          "precision": {
+            "value": 0.087,
+            "ci95": [
+              0.0,
+              0.3
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.095,
+            "ci95": [
+              0.0,
+              0.334
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.091,
+            "ci95": [
+              0.0,
+              0.259
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "PortScan": {
+          "precision": {
+            "value": 0.435,
+            "ci95": [
+              0.083,
+              0.75
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.5,
+            "ci95": [
+              0.111,
+              0.867
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.465,
+            "ci95": [
+              0.091,
+              0.717
+            ],
+            "n": 484,
+            "note": null
+          }
+        }
       }
     },
     "zscore_frozen": {
@@ -30,8 +157,135 @@
       "false_alarms_per_hour_on_clean": 1.54,
       "recall_by_attack": {
         "Bot": 0.03,
-        "DDoS": 0.9,
+        "DDoS": 0.91,
         "PortScan": 0.55
+      },
+      "bootstrap": {
+        "precision": {
+          "value": 0.623,
+          "ci95": [
+            0.378,
+            0.8
+          ],
+          "n": 484,
+          "note": null
+        },
+        "recall": {
+          "value": 0.217,
+          "ci95": [
+            0.102,
+            0.342
+          ],
+          "n": 484,
+          "note": null
+        },
+        "f1": {
+          "value": 0.322,
+          "ci95": [
+            0.164,
+            0.465
+          ],
+          "n": 484,
+          "note": null
+        },
+        "false_alarms_per_hour": {
+          "value": 1.54,
+          "ci95": [
+            0.31,
+            3.08
+          ],
+          "n": 195,
+          "note": null
+        }
+      },
+      "bootstrap_by_attack": {
+        "Bot": {
+          "precision": {
+            "value": 0.057,
+            "ci95": [
+              0.0,
+              0.143
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.027,
+            "ci95": [
+              0.0,
+              0.063
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.037,
+            "ci95": [
+              0.0,
+              0.081
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "DDoS": {
+          "precision": {
+            "value": 0.358,
+            "ci95": [
+              0.1,
+              0.567
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.905,
+            "ci95": [
+              0.667,
+              1.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.514,
+            "ci95": [
+              0.174,
+              0.707
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "PortScan": {
+          "precision": {
+            "value": 0.208,
+            "ci95": [
+              0.042,
+              0.406
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.55,
+            "ci95": [
+              0.143,
+              0.909
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.301,
+            "ci95": [
+              0.071,
+              0.518
+            ],
+            "n": 484,
+            "note": null
+          }
+        }
       }
     },
     "isolation_forest": {
@@ -44,8 +298,135 @@
       "false_alarms_per_hour_on_clean": 0.0,
       "recall_by_attack": {
         "Bot": 0.0,
-        "DDoS": 0.9,
+        "DDoS": 0.91,
         "PortScan": 0.35
+      },
+      "bootstrap": {
+        "precision": {
+          "value": 1.0,
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "n": 484,
+          "note": null
+        },
+        "recall": {
+          "value": 0.171,
+          "ci95": [
+            0.065,
+            0.288
+          ],
+          "n": 484,
+          "note": null
+        },
+        "f1": {
+          "value": 0.292,
+          "ci95": [
+            0.122,
+            0.448
+          ],
+          "n": 484,
+          "note": null
+        },
+        "false_alarms_per_hour": {
+          "value": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "n": 195,
+          "note": null
+        }
+      },
+      "bootstrap_by_attack": {
+        "Bot": {
+          "precision": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "DDoS": {
+          "precision": {
+            "value": 0.731,
+            "ci95": [
+              0.294,
+              0.964
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.905,
+            "ci95": [
+              0.667,
+              1.0
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.809,
+            "ci95": [
+              0.437,
+              0.949
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "PortScan": {
+          "precision": {
+            "value": 0.269,
+            "ci95": [
+              0.036,
+              0.706
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.35,
+            "ci95": [
+              0.056,
+              0.667
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.304,
+            "ci95": [
+              0.051,
+              0.6
+            ],
+            "n": 484,
+            "note": null
+          }
+        }
       }
     },
     "granite": {
@@ -60,6 +441,133 @@
         "Bot": 0.02,
         "DDoS": 0.38,
         "PortScan": 0.5
+      },
+      "bootstrap": {
+        "precision": {
+          "value": 0.714,
+          "ci95": [
+            0.464,
+            0.9
+          ],
+          "n": 484,
+          "note": null
+        },
+        "recall": {
+          "value": 0.132,
+          "ci95": [
+            0.056,
+            0.221
+          ],
+          "n": 484,
+          "note": null
+        },
+        "f1": {
+          "value": 0.222,
+          "ci95": [
+            0.099,
+            0.345
+          ],
+          "n": 484,
+          "note": null
+        },
+        "false_alarms_per_hour": {
+          "value": 1.23,
+          "ci95": [
+            0.0,
+            2.77
+          ],
+          "n": 195,
+          "note": null
+        }
+      },
+      "bootstrap_by_attack": {
+        "Bot": {
+          "precision": {
+            "value": 0.071,
+            "ci95": [
+              0.0,
+              0.211
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.018,
+            "ci95": [
+              0.0,
+              0.044
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.029,
+            "ci95": [
+              0.0,
+              0.071
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "DDoS": {
+          "precision": {
+            "value": 0.286,
+            "ci95": [
+              0.024,
+              0.581
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.381,
+            "ci95": [
+              0.028,
+              0.857
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.327,
+            "ci95": [
+              0.038,
+              0.577
+            ],
+            "n": 484,
+            "note": null
+          }
+        },
+        "PortScan": {
+          "precision": {
+            "value": 0.357,
+            "ci95": [
+              0.091,
+              0.63
+            ],
+            "n": 484,
+            "note": null
+          },
+          "recall": {
+            "value": 0.5,
+            "ci95": [
+              0.129,
+              0.84
+            ],
+            "n": 484,
+            "note": null
+          },
+          "f1": {
+            "value": 0.417,
+            "ci95": [
+              0.108,
+              0.65
+            ],
+            "n": 484,
+            "note": null
+          }
+        }
       }
     }
   },
@@ -89,5 +597,47 @@
     "numpy": "1.26.4",
     "pandas": "3.0.6",
     "scikit-learn": "1.9.1"
+  },
+  "meta": {
+    "command_line": "python -m packetlens reproduce --write",
+    "utc_time": "2026-11-11T07:52:34Z",
+    "versions": {
+      "python": "3.12.10",
+      "numpy": "1.26.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1"
+    },
+    "seeds": {
+      "isolation_forest": 0,
+      "bootstrap": 42,
+      "granite": "model revision controls inference"
+    },
+    "dataset_files": [
+      {
+        "name": "Monday-WorkingHours.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 268649908,
+        "sha256": "96f26aea87d513073769b48ce204c2921791149e1c6225f7db65a3fed7973820"
+      },
+      {
+        "name": "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 75386737,
+        "sha256": "c061cd98f39d8054aeaed6244a5129a20b3985983d0d022b860ae8aa07fe8d21"
+      },
+      {
+        "name": "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 101874777,
+        "sha256": "7e2ddaa80a5849ba629463296b6128436c161b4a32e8034bb5beae06b0c45e08"
+      },
+      {
+        "name": "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 96101069,
+        "sha256": "1f779b4f0d78f9225554c4de53b5a2c07912b60dcd136ee4c5c1d0d2496b7cc4"
+      }
+    ],
+    "skipped": []
   }
 }

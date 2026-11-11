@@ -2,6 +2,7 @@ import contextlib
 import csv
 import inspect
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,10 +55,19 @@ class FlowModelTests(unittest.TestCase):
 
     def test_cli_runs_end_to_end(self):
         output = io.StringIO()
+        result_path = Path(self.temp_dir.name) / "flowmodel.json"
         with contextlib.redirect_stdout(output):
-            main(["flowmodel", "--file", str(self.path)])
+            main(["flowmodel", "--file", str(self.path), "--save", str(result_path)])
         self.assertIn("| Random forest |", output.getvalue())
         self.assertIn("Top 10 RandomForest feature importances:", output.getvalue())
+        self.assertIn("Exact-duplicate rates by test class", output.getvalue())
+        report = json.loads(result_path.read_text(encoding="utf-8"))
+        forest = next(row for row in report["results"] if row["model"] == "Random forest")
+        self.assertGreaterEqual(forest["metrics"]["bootstrap"]["precision"]["n"], 30)
+        self.assertEqual(set(report["duplicate_check"]["per_class"]), {"Bot", "BENIGN"})
+        self.assertIn("precision", report["duplicate_check"]["duplicate_free_test"]["metrics"])
+        self.assertIn("recall", report["duplicate_check"]["duplicate_free_test"]["metrics"])
+        self.assertEqual(report["meta"]["dataset_files"][0]["name"], self.path.name)
 
     def test_alarm_threshold_uses_validation_inputs_only(self):
         labels = [0, 0, 0, 0, 1, 1]

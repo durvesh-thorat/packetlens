@@ -14,6 +14,36 @@
     "PortScan": 76292,
     "BENIGN": 3540
   },
+  "duplicate_check": {
+    "per_class": {
+      "PortScan": {
+        "test_rows": 77096,
+        "exact_duplicates": 76292,
+        "exact_duplicate_rate": 0.989571,
+        "duplicate_free_rows": 804
+      },
+      "BENIGN": {
+        "test_rows": 37491,
+        "exact_duplicates": 3540,
+        "exact_duplicate_rate": 0.094423,
+        "duplicate_free_rows": 33951
+      }
+    },
+    "duplicate_free_test": {
+      "rows": 34755,
+      "metrics": {
+        "precision": 1.0,
+        "recall": 0.9204,
+        "f1": 0.9585,
+        "average_precision": 0.9718,
+        "tn": 33951,
+        "fp": 0,
+        "fn": 64,
+        "tp": 740,
+        "fp_per_1000_benign": 0.0
+      }
+    }
+  },
   "dropped_labels": 0,
   "results": [
     {
@@ -55,7 +85,46 @@
         "fp": 0,
         "fn": 64,
         "tp": 77032,
-        "fp_per_1000_benign": 0.0
+        "fp_per_1000_benign": 0.0,
+        "false_alarms_per_hour": 0.0,
+        "bootstrap": {
+          "precision": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ],
+            "n": 36,
+            "note": null
+          },
+          "recall": {
+            "value": 0.99917,
+            "ci95": [
+              0.996834,
+              0.99975
+            ],
+            "n": 36,
+            "note": null
+          },
+          "f1": {
+            "value": 0.999585,
+            "ci95": [
+              0.998415,
+              0.999875
+            ],
+            "n": 36,
+            "note": null
+          },
+          "false_alarms_per_hour": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "n": 36,
+            "note": null
+          }
+        }
       }
     },
     {
@@ -138,5 +207,29 @@
     "pandas": "3.0.6",
     "scikit-learn": "1.9.1"
   },
-  "attack_label": "PortScan"
+  "attack_label": "PortScan",
+  "meta": {
+    "command_line": "python -m packetlens reproduce --write",
+    "utc_time": "2026-11-11T07:53:48Z",
+    "versions": {
+      "python": "3.12.10",
+      "numpy": "1.26.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1"
+    },
+    "seeds": {
+      "random_forest": 42,
+      "isolation_forest": 42,
+      "bootstrap": 42
+    },
+    "dataset_files": [
+      {
+        "name": "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 101874777,
+        "sha256": "7e2ddaa80a5849ba629463296b6128436c161b4a32e8034bb5beae06b0c45e08"
+      }
+    ],
+    "skipped": []
+  }
 }

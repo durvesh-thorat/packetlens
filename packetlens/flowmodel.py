@@ -21,9 +21,13 @@ try:
 except ImportError as e:  # pragma: no cover - depends on optional environment
     raise RuntimeError("flowmodel requires pandas and scikit-learn: pip install pandas scikit-learn") from e
 
+from .stats import block_bootstrap
+
 
 DEFAULT_FILE = Path("cicids2017_traffic_label") / "Friday-WorkingHours-Morning.pcap_ISCX.csv"
 RANDOM_STATE = 42
+BOOTSTRAP_RESAMPLES = 500
+BOOTSTRAP_SEED = 42
 # Schedule documented at https://www.unb.ca/cic/datasets/ids-2017.html
 FRIDAY_ATTACK_WINDOWS = {
     "Botnet": ((clock_time(10, 2), clock_time(11, 2)),),
@@ -184,10 +188,74 @@ def _call_model(method, *args):
         return method(*args)
 
 
-def _report_row(name, result):
-    return (f"| {name} | {result['precision']:.4f} | {result['recall']:.4f} | {result['f1']:.4f} "
-            f"| {result['average_precision']:.4f} | {result['tn']} | {result['fp']} | {result['fn']} "
-            f"| {result['tp']} | {result['fp_per_1000_benign']:.2f} |")
+def _report_row(name, result, bootstrap=None):
+    precision = _format_bootstrap(result["precision"], bootstrap, "precision")
+    recall = _format_bootstrap(result["recall"], bootstrap, "recall")
+    f1 = _format_bootstrap(result["f1"], bootstrap, "f1")
+    false_alarms = (_format_bootstrap(None, bootstrap,
+                                      "false_alarms_per_hour") if bootstrap else "—")
+    row = (f"| {name} | {precision} | {recall} | {f1} "
+           f"| {result['average_precision']:.4f} | {result['tn']} | {result['fp']} | {result['fn']} "
+           f"| {result['tp']} | {result['fp_per_1000_benign']:.2f}")
+    return row + (f" | {false_alarms} |" if bootstrap is not None else " |")
+
+
+def _format_bootstrap(value, bootstrap, name):
+    if bootstrap is None:
+        return f"{value:.4f}"
+    metric = bootstrap[name]
+    if value is None:
+        value = metric["value"]
+    interval = metric["ci95"]
+    rendered = f"{value:.4f}" if value is not None else "—"
+    if interval is not None:
+        rendered += f" [{interval[0]:.4f}, {interval[1]:.4f}]"
+    note = f"; {metric['note']}" if metric["note"] else ""
+    return f"{rendered} (n={metric['n']}{note})"
+
+
+def _minute_observations(test, y_true, prediction):
+    grouped = {}
+    for timestamp, actual, predicted in zip(test["ts"], y_true, prediction):
+        minute = timestamp.floor("min")
+        truth_bin, prediction_bin = grouped.setdefault(minute, ([], []))
+        truth_bin.append(bool(actual))
+        prediction_bin.append(bool(predicted))
+    minutes = pd.date_range(min(grouped), max(grouped), freq="1min")
+    return ([grouped.get(minute, ([], []))[0] for minute in minutes],
+            [grouped.get(minute, ([], []))[1] for minute in minutes])
+
+
+def _bootstrap_payload(metrics, estimate, note, n):
+    points = {
+        "precision": float(metrics["precision"]),
+        "recall": float(metrics["recall"]),
+        "f1": float(metrics["f1"]),
+        "false_alarms_per_hour": (
+            float(metrics["fp"]) * 60 / n if n else None),
+    }
+    return {
+        name: {
+            "value": round(value, 6) if value is not None else None,
+            "ci95": ([round(bound, 6) for bound in estimate["ci95"][name]]
+                     if estimate else None),
+            "n": n,
+            "note": note,
+        }
+        for name, value in points.items()
+    }
+
+
+def _json_metrics(metrics):
+    return {
+        "precision": round(float(metrics["precision"]), 4),
+        "recall": round(float(metrics["recall"]), 4),
+        "f1": round(float(metrics["f1"]), 4),
+        "average_precision": round(float(metrics["average_precision"]), 4),
+        "tn": metrics["tn"], "fp": metrics["fp"], "fn": metrics["fn"],
+        "tp": metrics["tp"],
+        "fp_per_1000_benign": round(float(metrics["fp_per_1000_benign"]), 2),
+    }
 
 
 def _new_forest(n_jobs=-1):
@@ -536,7 +604,7 @@ def _print_diagnose(train, test, test_features, forest, candidates, all_rows):
     candidates = [name for name in candidates if name != "Destination Port"]
     print("\n\n=== F. Cleaner machine split ===")
     cleaner_train, cleaner_test = split_cleaner_machine_rows(all_rows, held_out_ips)
-    _print_cleaner_split("F", cleaner_train, cleaner_test, held_out_ips, candidates)
+    cleaner = _print_cleaner_split("F", cleaner_train, cleaner_test, held_out_ips, candidates)
 
     print("\n\n=== G. Cleaner machine split excluding external Bot sources ===")
     external_ips = _external_bot_source_ips(all_rows)
@@ -546,7 +614,9 @@ def _print_diagnose(train, test, test_features, forest, candidates, all_rows):
         & ~cleaner_train["Destination IP"].isin(external_set)
     ].copy()
     print(f"Removed Bot Source IPs outside 192.168.0.0/16: {', '.join(map(str, external_ips)) or '(none)'}")
-    _print_cleaner_split("G", cleaner_train_g, cleaner_test, held_out_ips, candidates)
+    cleaner_external = _print_cleaner_split(
+        "G", cleaner_train_g, cleaner_test, held_out_ips, candidates)
+    return {"cleaner_machine_split": cleaner, "cleaner_without_external_sources": cleaner_external}
 
 
 def _print_cleaner_split(label, train, test, held_out_ips, candidates):
@@ -557,11 +627,20 @@ def _print_cleaner_split(label, train, test, held_out_ips, candidates):
     if int((y_test == 1).sum()) < 50:
         print("*** WARNING: fewer than 50 Bot flows in the test part. ***")
     _print_bot_source_counts(train)
-    _print_metrics_table(_fit_machine_metrics(train, test, candidates))
+    rows = _fit_machine_metrics(train, test, candidates)
+    _print_metrics_table(rows)
+    return {
+        "held_out_source_ips": [str(ip) for ip in held_out_ips],
+        "counts": {
+            "train": {"attack": int((y_train == 1).sum()), "BENIGN": int((y_train == 0).sum())},
+            "test": {"attack": int((y_test == 1).sum()), "BENIGN": int((y_test == 0).sum())},
+        },
+        "random_forest": _json_metrics(next(result for name, result in rows if name == "Random forest")),
+    }
 
 
 def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=False,
-                   audit_labels=False, save_path=None, attack_label="Bot"):
+                   audit_labels=False, save_path=None, attack_label="Bot", meta=None):
     attack_label = _normalize_attack_label(attack_label)
     if attack_label.upper() != "BOT" and (extended or diagnose or audit_labels):
         raise ValueError("extended, diagnose, and audit-labels currently require --attack-label Bot")
@@ -625,10 +704,52 @@ def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=F
                  _metrics(y_test, sensitivity_prediction,
                           _call_model(sensitivity.predict_proba, sensitivity_test)[:, list(sensitivity.classes_).index(1)])))
 
-    print("\n| model | precision | recall | F1 | average precision (PR-AUC) | tn | fp | fn | tp | FP / 1,000 BENIGN |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    forest_metrics = next(result for name, result in rows if name == "Random forest")
+    truth_bins, prediction_bins = _minute_observations(test, y_test, forest_prediction)
+    bootstrap_estimate, bootstrap_note = block_bootstrap(
+        truth_bins, prediction_bins, block_length=1, bin_seconds=60,
+        resamples=BOOTSTRAP_RESAMPLES, seed=BOOTSTRAP_SEED)
+    forest_bootstrap = _bootstrap_payload(
+        forest_metrics, bootstrap_estimate, bootstrap_note, len(truth_bins))
+
+    duplicates = {}
+    for label, value in ((attack_label, 1), ("BENIGN", 0)):
+        class_mask = y_test == value
+        count = int((matches & class_mask).sum())
+        total = int(class_mask.sum())
+        duplicates[label] = {
+            "test_rows": total,
+            "exact_duplicates": count,
+            "exact_duplicate_rate": round(count / total, 6) if total else None,
+            "duplicate_free_rows": total - count,
+        }
+    duplicate_free = ~matches
+    duplicate_free_metrics = None
+    if duplicate_free.any():
+        duplicate_prediction = _call_model(forest.predict, test_features[duplicate_free])
+        duplicate_scores = _positive_probability(forest, test_features[duplicate_free])
+        duplicate_free_metrics = _json_metrics(_metrics(
+            y_test[duplicate_free], duplicate_prediction, duplicate_scores))
+
+    print("\nExact-duplicate rates by test class")
+    print("| class | test rows | exact duplicates | duplicate rate |")
+    print("|---|---:|---:|---:|")
+    for label, values in duplicates.items():
+        rate = values["exact_duplicate_rate"]
+        rate_text = f"{rate:.2%}" if rate is not None else "unavailable"
+        print(f"| {label} | {values['test_rows']} | {values['exact_duplicates']} "
+              f"| {rate_text} |")
+    if duplicate_free_metrics is not None:
+        print(f"\nDuplicate-free test subset (n={int(duplicate_free.sum())}): "
+              f"Random Forest precision={duplicate_free_metrics['precision']:.4f}, "
+              f"recall={duplicate_free_metrics['recall']:.4f}")
+    else:
+        print("\nDuplicate-free test subset: unavailable (no rows remain)")
+
+    print("\n| model | precision | recall | F1 | average precision (PR-AUC) | tn | fp | fn | tp | FP / 1,000 BENIGN | false alarms/hour |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name, result in rows:
-        print(_report_row(name, result))
+        print(_report_row(name, result, forest_bootstrap if name == "Random forest" else None))
 
     print("\nTop 10 RandomForest feature importances:")
     feature_importances = forest.feature_importances_
@@ -644,49 +765,57 @@ def run_experiment(path=DEFAULT_FILE, train_frac=0.6, extended=False, diagnose=F
     if extended:
         _run_extended(train, test, feature_columns(df), test_features, matches,
                       forest, names, df)
+    diagnostics = None
     if diagnose:
-        _print_diagnose(train, test, test_features, forest, feature_columns(df), df)
-    result = {"counts": counts, "dropped_labels": dropped_labels, "features": names,
-              "sensitivity_features": sensitivity_names, "results": rows}
+        diagnostics = _print_diagnose(
+            train, test, test_features, forest, feature_columns(df), df)
+    payload = {
+        "retained_rows": len(df),
+        "counts": counts,
+        "exact_test_feature_vectors_in_training": {
+            attack_label: duplicates[attack_label]["exact_duplicates"],
+            "BENIGN": duplicates["BENIGN"]["exact_duplicates"],
+        },
+        "duplicate_check": {
+            "per_class": duplicates,
+            "duplicate_free_test": {
+                "rows": int(duplicate_free.sum()),
+                "metrics": duplicate_free_metrics,
+            },
+        },
+        "dropped_labels": dropped_labels,
+        "results": [
+            {
+                "model": name,
+                "metrics": {
+                    **_json_metrics(metrics),
+                    **({"false_alarms_per_hour": forest_bootstrap["false_alarms_per_hour"]["value"],
+                        "bootstrap": forest_bootstrap} if name == "Random forest" else {}),
+                },
+            }
+            for name, metrics in rows
+        ],
+        "top_10_feature_importances": importances,
+        "seed": RANDOM_STATE,
+        "train_frac": train_frac,
+        "bin_width": None,
+        "library_versions": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+            "scikit-learn": version("scikit-learn"),
+        },
+    }
+    if attack_label != "Bot":
+        payload["attack_label"] = attack_label
     if audit is not None:
-        result["audit"] = audit
+        payload["audit"] = audit
+    if diagnostics is not None:
+        payload["diagnostics"] = diagnostics
+    if meta is not None:
+        payload["meta"] = meta
     if save_path:
-        payload = {
-            "retained_rows": len(df),
-            "counts": counts,
-            "exact_test_feature_vectors_in_training": {
-                attack_label: int(matches[y_test == 1].sum()),
-                "BENIGN": int(matches[y_test == 0].sum()),
-            },
-            "dropped_labels": dropped_labels,
-            "results": [
-                {"model": name, "metrics": {
-                    "precision": round(float(metrics["precision"]), 4),
-                    "recall": round(float(metrics["recall"]), 4),
-                    "f1": round(float(metrics["f1"]), 4),
-                    "average_precision": round(float(metrics["average_precision"]), 4),
-                    "tn": metrics["tn"], "fp": metrics["fp"], "fn": metrics["fn"],
-                    "tp": metrics["tp"],
-                    "fp_per_1000_benign": round(float(metrics["fp_per_1000_benign"]), 2),
-                }}
-                for name, metrics in rows
-            ],
-            "top_10_feature_importances": importances,
-            "seed": RANDOM_STATE,
-            "train_frac": train_frac,
-            "bin_width": None,
-            "library_versions": {
-                "python": platform.python_version(),
-                "numpy": np.__version__,
-                "pandas": pd.__version__,
-                "scikit-learn": version("scikit-learn"),
-            },
-        }
-        if attack_label != "Bot":
-            payload["attack_label"] = attack_label
-        if audit is not None:
-            payload["audit"] = audit
         output_path = Path(save_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return result
+    return payload
