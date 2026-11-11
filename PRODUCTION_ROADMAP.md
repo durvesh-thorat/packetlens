@@ -99,6 +99,9 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
+**Milestone-status proxy (as of 2026-11-11):** 1/8 milestones are DONE (12.5%). This is
+not overall engineering completion, production readiness, or weighted work progress.
+
 ### M0 — Define the target
 **Status: IN PROGRESS**
 Choose one authorized environment; fill Section 2; define measurable acceptance targets,
@@ -414,6 +417,38 @@ test run recorded in this log.
   decisions remain unverified/TBD.
 - Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
   M2 completion from this entry.
+
+#### 2026-11-11 — Validate classic-PCAP global-header version
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Accept only classic-PCAP global-header version 2.4 and reject
+  unsupported major/minor values before record reads. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and `PRODUCTION_ROADMAP.md`.
+- Behavior changed: `PcapReader` raises `PcapError` for any version other than 2.4
+  after reading the 24-byte global header and before reading records. Version 2.4
+  remains valid. The check applies in either byte order; `PcapWriter` continues to emit
+  version 2.4.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    27 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 84 tests run, 0 failures,
+    18 skipped. Skips: 11 require pandas and scikit-learn, 4 require pandas, and 3
+    require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: Focused tests accept 2.4 in both byte orders and reject unsupported
+  major and minor versions in both byte orders. A tracking stream verifies rejected
+  headers trigger only a 24-byte read, not a record read. README documents the supported
+  version and rejection behavior.
+- Review findings: PacketLens Reviewer inspected `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and the relevant roadmap sections;
+  reported no actionable code or test findings and did not run tests. Reviewer could
+  not independently compare the Git diff; the coordinator inspected the actual diff.
+- Remaining risks or unverified assumptions: This deliberately rejects classic-PCAP
+  versions other than 2.4, even if a future supported format requires them. This does
+  not complete M2. Windows 11 behavior and the M0 maintainer decisions and TBDs remain
+  unverified and unchanged.
+- Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
+  M2 completion.
 
 ### Progress-entry template
 
