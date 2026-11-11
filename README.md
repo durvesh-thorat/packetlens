@@ -60,8 +60,9 @@ exports a standalone HTML report.
 Classic pcap captures with a partial record header or packet payload, or a captured packet length greater than the
 global-header snaplen or original packet length, are rejected with an error before packet data is read. A captured
 length smaller than the original length is valid when it is within snaplen (snap-truncated capture); an empty
-capture with a complete global header is also valid. The writer rejects packet data larger than its configured
-snaplen rather than truncating it. Pcapng is not supported.
+capture with a complete global header is also valid. Timestamp fractions at or above 1,000,000 in microsecond
+captures or 1,000,000,000 in nanosecond captures are rejected. The writer rejects packet data larger than its
+configured snaplen rather than truncating it. Pcapng is not supported.
 
 The flow-level machine learning experiments (Isolation Forest, Random Forest, Granite Time Series) run offline on CIC-IDS2017 flow tables. They are not part of the live packet pipeline.
 

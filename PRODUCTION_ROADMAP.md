@@ -382,6 +382,39 @@ test run recorded in this log.
   the review and publication state of this change is resolved; do not infer M2
   completion from this entry.
 
+#### 2026-11-11 — Reject out-of-range classic pcap timestamp fractions
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-PCAP record timestamp fractions outside the
+  resolution declared by the file magic. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for a microsecond fraction greater
+  than or equal to 1,000,000 or a nanosecond fraction greater than or equal to
+  1,000,000,000, before reading or yielding that record's payload. Fractions through
+  resolution minus one remain valid. Existing valid-record, empty-capture, and
+  truncated-capture behavior is retained.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    25 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 82 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: Focused regression tests exercise the upper valid fraction and the
+  exact rejected limit for microsecond and nanosecond files in both byte orders. The
+  rejection tests also verify a preceding valid record is yielded and the invalid record
+  raises rather than being yielded.
+- Review findings: PacketLens Reviewer inspected the supplied patch text and the current
+  `packetlens/pcap.py`, `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap
+  entry; reported no actionable findings and did not run tests. Reviewer could not
+  independently verify the Git diff; the coordinator inspected the actual diff.
+- Remaining risks or unverified assumptions: The timestamp API still returns a Python
+  float, whose representation may not preserve nanosecond precision; this task validates
+  fraction bounds only. This does not complete M2. Windows 11 behavior and remaining M0
+  decisions remain unverified/TBD.
+- Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
+  M2 completion from this entry.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
