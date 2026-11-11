@@ -499,6 +499,13 @@ h3 {
   text-align: center !important;
 }
 
+.raw-json {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .identifier,
 .mono-link,
 .mono-heading {
@@ -822,6 +829,34 @@ h3 {
 
   .filter-bar .primary-button {
     align-self: flex-end;
+  }
+
+  .responsive-identifiable {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .responsive-identifiable .nowrap-cell {
+    white-space: nowrap;
+  }
+
+  .responsive-identifiable .wrap-cell {
+    min-width: 13rem;
+    white-space: normal;
+  }
+
+  .responsive-identifiable th:first-child,
+  .responsive-identifiable td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: 1px 0 var(--border);
+  }
+
+  .responsive-identifiable th:first-child {
+    z-index: 2;
+    background: var(--surface-muted);
   }
 }
 

@@ -125,6 +125,31 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(quality["items"][0]["name"], "evaluation.json")
         self.assertIn("modified", quality["items"][0])
+        status, _headers, report = self.json_request("/api/quality/evaluation.json")
+        self.assertEqual(status, 200)
+        self.assertEqual(report, {"untouched": True})
+
+    def test_quality_result_name_validation_and_size_limit(self):
+        self.results.mkdir()
+        (self.results / "evaluation.json").write_text('{"ok":true}', encoding="utf-8")
+        (self.results / "notes.txt").write_text("not JSON", encoding="utf-8")
+        for path in ("/api/quality/../x", "/api/quality/%2e%2e%2f",
+                     "/api/quality/not-listed.json", "/api/quality/notes.txt"):
+            status, _headers, body = self.request("GET", path, raw_path=True)
+            self.assertEqual(status, 404, path)
+            self.assertEqual(set(json.loads(body)), {"error"})
+
+        oversized = self.results / "oversized.json"
+        oversized.write_bytes(b" " * (1024 * 1024 + 1))
+        status, _headers, body = self.request("GET", "/api/quality/oversized.json")
+        self.assertEqual(status, 400)
+        self.assertEqual(set(json.loads(body)), {"error"})
+
+        invalid = self.results / "invalid.json"
+        invalid.write_text("{", encoding="utf-8")
+        status, _headers, body = self.request("GET", "/api/quality/invalid.json")
+        self.assertEqual(status, 400)
+        self.assertEqual(set(json.loads(body)), {"error"})
 
         status, headers, page = self.request("GET", "/")
         self.assertEqual(status, 200)

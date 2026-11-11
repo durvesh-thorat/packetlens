@@ -237,7 +237,7 @@ def generate(duration=300, seed=1, attacks=True, sessions_per_second=8.0):
         add("arp_spoof", "arp_spoof", "02:00:c0:a8:01:c8",
             _arp_spoof(260, frames, "192.168.1.200", victim, 5))
         add("horizontal_scan", "horizontal_scan", "192.168.1.203",
-            _horizontal_scan(270, frames, "192.168.1.203"))
+            _horizontal_scan(270, frames, "192.168.1.203"), volumetric=True)
     frames = [(BASE_TS + ts, f) for ts, f in frames]
     frames.sort(key=lambda x: x[0])
     return frames, events

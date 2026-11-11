@@ -96,13 +96,14 @@ function tableWrap(table) {
   return wrap;
 }
 
-function table(headers, rows, emptyMessage) {
-  const result = node("table", "data-table");
+function table(headers, rows, emptyMessage, className) {
+  const result = node("table", `data-table${className ? ` ${className}` : ""}`);
   const thead = node("thead");
   const headerRow = node("tr");
   for (const header of headers) {
     const th = node("th");
     th.scope = "col";
+    if (header.cellClass) th.classList.add(header.cellClass);
     th.textContent = header.label;
     if (header.key) {
       th.setAttribute("aria-sort", header.sort || "none");
@@ -125,8 +126,11 @@ function table(headers, rows, emptyMessage) {
   } else {
     for (const rowData of rows) {
       const row = node("tr");
-      for (const cellData of rowData) {
+      for (const [index, cellData] of rowData.entries()) {
         const cell = node("td");
+        if (headers[index] && headers[index].cellClass) {
+          cell.classList.add(headers[index].cellClass);
+        }
         if (cellData instanceof Node) cell.append(cellData);
         else cell.textContent = cellData === undefined || cellData === null ? "—" : String(cellData);
         row.append(cell);
@@ -499,19 +503,19 @@ async function renderIncidents(parts) {
     let rows = response.items;
     rows = localSort(rows, state.incidentSort, (item, key) => item[key]);
     const incidentTable = table([
-      {label: "ID"},
-      {label: "Kind", key: "kind", sort: sortable("kind", state.incidentSort)},
-      {label: "Severity", key: "severity", sort: sortable("severity", state.incidentSort)},
-      {label: "Status", key: "status", sort: sortable("status", state.incidentSort)},
-      {label: "Source", key: "src", sort: sortable("src", state.incidentSort)},
-      {label: "Count", key: "count", sort: sortable("count", state.incidentSort)},
-      {label: "Last seen", key: "last_ts", sort: sortable("last_ts", state.incidentSort)}
+      {label: "ID", cellClass: "nowrap-cell"},
+      {label: "Kind", key: "kind", sort: sortable("kind", state.incidentSort), cellClass: "nowrap-cell"},
+      {label: "Severity", key: "severity", sort: sortable("severity", state.incidentSort), cellClass: "nowrap-cell"},
+      {label: "Status", key: "status", sort: sortable("status", state.incidentSort), cellClass: "nowrap-cell"},
+      {label: "Source", key: "src", sort: sortable("src", state.incidentSort), cellClass: "nowrap-cell"},
+      {label: "Count", key: "count", sort: sortable("count", state.incidentSort), cellClass: "nowrap-cell"},
+      {label: "Last seen", key: "last_ts", sort: sortable("last_ts", state.incidentSort), cellClass: "nowrap-cell"}
     ], rows.map(item => [
       link(item.id, `#/incidents/${encodeURIComponent(item.id)}`, "identifier"),
       item.kind, item.severity, item.status,
       link(item.src, `#/hosts/${encodeURIComponent(item.src)}`, "mono-link"),
       number(item.count), formatTime(item.last_ts)
-    ]), "No incidents match the selected filters.");
+    ]), "No incidents match the selected filters.", "responsive-identifiable");
     listPanel.replaceChildren(node("h2", "panel-title", "Incident register"), tableWrap(incidentTable));
     pageControls(listPanel, response.total, filters.limit, filters.offset, offset => {
       state.incidentFilters.offset = offset;
@@ -617,9 +621,13 @@ async function renderIncidentDetail(id) {
       formatTime(alert.ts), severityBadge(alert.severity), alert.kind,
       link(alert.src, `#/hosts/${encodeURIComponent(alert.src)}`, "mono-link"), alert.detail
     ]);
-    const timeline = section("Alert timeline", table([
-      {label: "Packet time"}, {label: "Severity"}, {label: "Kind"}, {label: "Source"}, {label: "Detail"}
-    ], timelineRows, "No alert timeline recorded."));
+    const timeline = section("Alert timeline", tableWrap(table([
+      {label: "Packet time", cellClass: "nowrap-cell"},
+      {label: "Severity", cellClass: "nowrap-cell"},
+      {label: "Kind", cellClass: "nowrap-cell"},
+      {label: "Source", cellClass: "nowrap-cell"},
+      {label: "Detail", cellClass: "wrap-cell"}
+    ], timelineRows, "No alert timeline recorded.", "responsive-identifiable")));
     content.append(timeline);
 
     const action = node("form", "status-actions");
@@ -724,16 +732,17 @@ async function renderHosts(parts) {
     const rows = localSort(response.items, state.hostSort,
       (item, key) => key === "bytes" ? item.bytes_in + item.bytes_out : item[key]);
     const hostTable = table([
-      {label: "Address", key: "ip", sort: sortable("ip", state.hostSort)},
-      {label: "Packets", key: "packets_in", sort: sortable("packets_in", state.hostSort)},
-      {label: "Bytes", key: "bytes", sort: sortable("bytes", state.hostSort)},
-      {label: "Peers"}, {label: "Alerts", key: "alert_count", sort: sortable("alert_count", state.hostSort)},
-      {label: "Last seen", key: "last_seen", sort: sortable("last_seen", state.hostSort)}
+      {label: "Address", key: "ip", sort: sortable("ip", state.hostSort), cellClass: "nowrap-cell"},
+      {label: "Packets", key: "packets_in", sort: sortable("packets_in", state.hostSort), cellClass: "nowrap-cell"},
+      {label: "Bytes", key: "bytes", sort: sortable("bytes", state.hostSort), cellClass: "nowrap-cell"},
+      {label: "Peers", cellClass: "nowrap-cell"},
+      {label: "Alerts", key: "alert_count", sort: sortable("alert_count", state.hostSort), cellClass: "nowrap-cell"},
+      {label: "Last seen", key: "last_seen", sort: sortable("last_seen", state.hostSort), cellClass: "nowrap-cell"}
     ], rows.map(item => [
       link(item.ip, `#/hosts/${encodeURIComponent(item.ip)}`, "mono-link"),
       number(item.packets_in + item.packets_out), humanBytes(item.bytes_in + item.bytes_out),
       number(item.peers.length), number(item.alert_count), formatTime(item.last_seen)
-    ]), "No host profiles match the selected filter.");
+    ]), "No host profiles match the selected filter.", "responsive-identifiable");
     listPanel.replaceChildren(node("h2", "panel-title", "Host inventory"), tableWrap(hostTable));
     pageControls(listPanel, response.total, filters.limit, filters.offset, offset => {
       state.hostFilters.offset = offset;
@@ -817,21 +826,220 @@ function listLinks(values, route) {
   return list;
 }
 
-async function renderQuality() {
+function reportValue(value) {
+  if (value === undefined) return "—";
+  if (value === null) return "null";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function reportTable(parent, title, labels, rows, emptyMessage) {
+  parent.append(section(title, tableWrap(table(
+    labels.map(label => ({label})), rows.map(row => row.map(reportValue)), emptyMessage
+  ))));
+}
+
+function flattenReport(value, path, rows) {
+  if (Array.isArray(value)) {
+    if (!value.length) rows.push([path, "[]"]);
+    value.forEach((item, index) => flattenReport(item, `${path}[${index}]`, rows));
+  } else if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (!entries.length) rows.push([path, "{}"]);
+    entries.forEach(([key, item]) =>
+      flattenReport(item, path ? `${path}.${key}` : key, rows));
+  } else {
+    rows.push([path, reportValue(value)]);
+  }
+}
+
+function renderReportMetadata(parent, report) {
+  const rows = [];
+  if (Object.prototype.hasOwnProperty.call(report, "seed")) {
+    rows.push(["seed", reportValue(report.seed)]);
+  }
+  if (Object.prototype.hasOwnProperty.call(report, "train_frac")) {
+    rows.push(["train_frac", reportValue(report.train_frac)]);
+  }
+  if (Object.prototype.hasOwnProperty.call(report, "library_versions")) {
+    const versions = report.library_versions;
+    if (versions && typeof versions === "object" && !Array.isArray(versions)) {
+      for (const [library, version] of Object.entries(versions)) {
+        rows.push([`library_versions.${library}`, reportValue(version)]);
+      }
+    } else rows.push(["library_versions", reportValue(versions)]);
+  }
+  if (rows.length) reportTable(parent, "Run metadata", ["Field", "Value"], rows);
+}
+
+function renderAudit(parent, audit) {
+  const sections = [
+    ["h1_bot_flows_per_30min", "H1 — Bot flows per 30 minutes"],
+    ["h2_attacker_flows_after_window", "H2 — Attacker flows after the window"],
+    ["h3_destination_pairs", "H3 — Destination-pair overlap"],
+    ["h4_test_bot", "H4 — Test Bot results"]
+  ];
+  for (const [key, title] of sections) {
+    if (!Object.prototype.hasOwnProperty.call(audit, key)) continue;
+    const rows = [];
+    flattenReport(audit[key], "", rows);
+    reportTable(parent, title, ["Field", "Value"], rows, "No audit data recorded.");
+  }
+}
+
+function renderEvaluationReport(parent, report) {
+  const events = Array.isArray(report.events) ? report.events : [];
+  reportTable(parent, "Event detection", ["Event", "Detector", "Detected", "Delay (s)"],
+    events.map(item => [item.event, item.detector, item.detected, item.delay_s]),
+    "No event results recorded.");
+  const falsePositives = Object.entries(report.false_positives_on_clean_traffic || {})
+    .map(([kind, count]) => [kind, count]);
+  reportTable(parent, "Clean-traffic false positives", ["Detector", "Alerts"],
+    falsePositives, "No clean-traffic false positives recorded.");
+
+  const metrics = ["tp", "fp", "fn", "precision", "recall", "f1"];
+  const detectors = Object.entries(report.bin_level_volume_detectors || {});
+  reportTable(parent, "Bin-level volume detectors", ["Method", ...metrics],
+    detectors.map(([method, result]) => [
+      method, ...metrics.map(metric => result && result[metric])
+    ]), "No volume-detector results recorded.");
+}
+
+function renderFlowsReport(parent, report) {
+  const bins = Object.entries(report.bins || {}).map(([name, count]) => [name, count]);
+  reportTable(parent, "Bins summary", ["Set", "Bins"], bins, "No bins summary recorded.");
+
+  const methods = report.methods || {};
+  const methodNames = Object.keys(methods);
+  const metricNames = [];
+  const attackNames = [];
+  for (const method of methodNames) {
+    for (const [name, value] of Object.entries(methods[method] || {})) {
+      if (name === "recall_by_attack") {
+        for (const attack of Object.keys(value || {})) {
+          if (!attackNames.includes(attack)) attackNames.push(attack);
+        }
+      } else if (!metricNames.includes(name)) metricNames.push(name);
+    }
+  }
+  reportTable(parent, "Per-method metrics", ["Method", ...metricNames],
+    methodNames.map(method => [
+      method, ...metricNames.map(metric => methods[method][metric])
+    ]), "No method results recorded.");
+  reportTable(parent, "Recall by attack", ["Attack", ...methodNames],
+    attackNames.map(attack => [
+      attack, ...methodNames.map(method => {
+        const values = methods[method].recall_by_attack || {};
+        return Object.prototype.hasOwnProperty.call(values, attack) ? values[attack] : "—";
+      })
+    ]), "No per-attack recall recorded.");
+
+  if (report.granite && typeof report.granite === "object") {
+    const graniteRows = Object.entries(report.granite)
+      .map(([key, value]) => [key, reportValue(value)]);
+    reportTable(parent, "Granite metadata", ["Field", "Value"], graniteRows);
+  }
+}
+
+function renderFlowmodelReport(parent, report) {
+  const counts = [];
+  for (const [split, values] of Object.entries(report.counts || {})) {
+    for (const [label, count] of Object.entries(values || {})) {
+      counts.push([split, label, count]);
+    }
+  }
+  reportTable(parent, "Counts", ["Split", "Label", "Flows"], counts, "No counts recorded.");
+
+  const metricNames = [
+    "precision", "recall", "f1", "average_precision", "tn", "fp", "fn", "tp",
+    "fp_per_1000_benign"
+  ];
+  const results = Array.isArray(report.results) ? report.results : [];
+  reportTable(parent, "Results", ["Model", ...metricNames],
+    results.map(result => [
+      result.model, ...metricNames.map(metric => result.metrics && result.metrics[metric])
+    ]), "No model results recorded.");
+
+  const importances = Array.isArray(report.top_10_feature_importances) ?
+    report.top_10_feature_importances : [];
+  reportTable(parent, "Top feature importances", ["Feature", "Importance"],
+    importances.map(item => [item.feature, item.importance]),
+    "No feature importances recorded.");
+  if (report.audit && typeof report.audit === "object") renderAudit(parent, report.audit);
+}
+
+function renderQualityReport(parent, name, report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    const details = node("details", "raw-report");
+    details.append(node("summary", "", "Raw JSON report"));
+    details.append(node("pre", "raw-json", JSON.stringify(report, null, 2)));
+    parent.append(section("Report data", details));
+    return;
+  }
+  renderReportMetadata(parent, report);
+  if (name === "evaluation.json") renderEvaluationReport(parent, report);
+  else if (name === "flows_real.json") renderFlowsReport(parent, report);
+  else if (/^flowmodel_.*\.json$/.test(name)) renderFlowmodelReport(parent, report);
+  else if (name === "benchmark.json") {
+    reportTable(parent, "Benchmark results", ["Measurement", "Value"],
+      Object.entries(report).map(([key, value]) => [key, reportValue(value)]),
+      "No benchmark values recorded.");
+  } else {
+    const details = node("details", "raw-report");
+    details.append(node("summary", "", "Raw JSON report"));
+    const pre = node("pre", "raw-json", JSON.stringify(report, null, 2));
+    details.append(pre);
+    parent.append(section("Report data", details));
+  }
+}
+
+async function renderQuality(parts) {
   frame("Detection quality", "Reference result files; values are not recomputed by the console.");
   const caveat = node("aside", "caveat-banner");
   caveat.setAttribute("role", "note");
   caveat.append(node("strong", "", "Interpret with care. "),
     node("span", "", "Synthetic and real-data results differ and should not be compared as if they were produced under identical conditions."));
   view.append(caveat);
-  const panel = section("Available result files", node("p", "muted", "Loading result files…"));
+  const panel = section("Available result files", node("p", "loading", "Loading result files…"));
   view.append(panel);
   try {
     const response = await request("/api/quality");
-    const rows = response.items.map(item => [item.name, formatDate(item.modified)]);
-    panel.replaceChildren(node("h2", "panel-title", "Available result files"),
-      tableWrap(table([{label: "File"}, {label: "Modified"}], rows,
-        "No result JSON files found. Generate a synthetic evaluation with `packetlens evaluate --save results/evaluation.json`. Real-data reports are produced by the `flows` command.")));
+    const items = Array.isArray(response.items) ? response.items : [];
+    const selectedName = parts.length > 1 ? parts[1] : "";
+    const rows = items.map(item => [
+      link(item.name, `#/quality/${encodeURIComponent(item.name)}`,
+        selectedName === item.name ? "identifier selected-result" : "identifier"),
+      formatDate(item.modified)
+    ]);
+    panel.replaceChildren(node("h2", "panel-title", "Available result files"));
+    if (items.length) {
+      panel.append(tableWrap(table([{label: "File"}, {label: "Modified"}], rows,
+        "No result JSON files found.")));
+    } else {
+      panel.append(node("p", "muted",
+        "No result JSON files found. Generate a synthetic evaluation with `packetlens evaluate --save results/evaluation.json`. Real-data reports are produced by the `flows` command."));
+    }
+    if (selectedName) {
+      const selected = items.find(item => item.name === selectedName);
+      if (!selected) {
+        view.append(section("Selected report", node(
+          "p", "state-message error-message", "This result file is no longer available."
+        )));
+        return;
+      }
+      const reportPanel = section("Selected report", node("p", "loading", "Loading report…"));
+      view.append(reportPanel);
+      try {
+        const report = await request(`/api/quality/${encodeURIComponent(selectedName)}`);
+        reportPanel.replaceChildren(
+          node("h2", "panel-title", selectedName),
+          node("p", "muted", `Modified ${formatDate(selected.modified)}`)
+        );
+        renderQualityReport(reportPanel, selectedName, report);
+      } catch (error) {
+        reportPanel.replaceChildren(node("h2", "panel-title", selectedName),
+          node("p", "state-message error-message", `Could not load report: ${error.message}`));
+      }
+    }
   } catch (error) {
     panel.replaceChildren(node("h2", "panel-title", "Available result files"),
       node("p", "state-message error-message", `Could not load result files: ${error.message}`));
@@ -856,9 +1064,14 @@ async function renderPolicies() {
     ]);
     panel.replaceChildren(node("h2", "panel-title", "Policy rules"), description,
       tableWrap(table([
-        {label: "Rule"}, {label: "Detector"}, {label: "State"}, {label: "Severity"},
-        {label: "Action"}, {label: "Thresholds / parameters"}, {label: "Allowlists"}
-      ], rows, "No policy rules configured.")));
+        {label: "Rule", cellClass: "nowrap-cell"},
+        {label: "Detector", cellClass: "nowrap-cell"},
+        {label: "State", cellClass: "nowrap-cell"},
+        {label: "Severity", cellClass: "nowrap-cell"},
+        {label: "Action", cellClass: "nowrap-cell"},
+        {label: "Thresholds / parameters", cellClass: "wrap-cell"},
+        {label: "Allowlists", cellClass: "wrap-cell"}
+      ], rows, "No policy rules configured.", "responsive-identifiable")));
   } catch (error) {
     panel.replaceChildren(node("h2", "panel-title", "Policy rules"),
       node("p", "state-message error-message", `Could not load policy: ${error.message}`));
@@ -876,7 +1089,7 @@ async function renderRoute(parts, focus) {
     if (parts[0] === "overview") await renderOverview();
     else if (parts[0] === "incidents") await renderIncidents(parts);
     else if (parts[0] === "hosts") await renderHosts(parts);
-    else if (parts[0] === "quality" && parts.length === 1) await renderQuality();
+    else if (parts[0] === "quality") await renderQuality(parts);
     else if (parts[0] === "policies" && parts.length === 1) await renderPolicies();
     else {
       frame("Not found", "The requested console view does not exist.");

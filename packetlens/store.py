@@ -112,6 +112,7 @@ class Store:
                     self._active[key] = {
                         "id": row[0], "status": row[3], "last_ts": row[4],
                         "count": row[5], "first_ts": row[6], "severity": row[7],
+                        "incident_gap_s": 15 if row[1] == "volumetric" else self.incident_gap_s,
                     }
         finally:
             setup.close()
@@ -180,32 +181,42 @@ class Store:
         timestamp = float(values["ts"])
         kind, src = str(values["kind"]), str(values["src"])
         severity = str(values["severity"])
+        policy_gap = getattr(alert, "_incident_gap_s", None)
+        if policy_gap is not None:
+            incident_gap_s = float(policy_gap)
+        elif kind == "volumetric" and not getattr(alert, "_policy_applied", False):
+            incident_gap_s = 15
+        else:
+            incident_gap_s = self.incident_gap_s
         log_only = action == "log"
         incident_id = None
         if not log_only:
             key = (kind, src)
             with self._incident_lock:
-                while self._active:
-                    oldest_key, oldest = next(iter(self._active.items()))
-                    if oldest["status"] == "closed" or timestamp - oldest["last_ts"] > self.incident_gap_s:
-                        self._active.pop(oldest_key)
-                    else:
-                        break
+                for active_key, active in list(self._active.items()):
+                    active_gap = active.get(
+                        "incident_gap_s",
+                        15 if active_key[0] == "volumetric" else self.incident_gap_s)
+                    if (active["status"] == "closed" or
+                            timestamp - active["last_ts"] > active_gap):
+                        self._active.pop(active_key)
                 current = self._active.get(key)
                 if current is None or current["status"] == "closed" or abs(
-                        timestamp - current["last_ts"]) > self.incident_gap_s:
+                        timestamp - current["last_ts"]) > incident_gap_s:
                     self._active.pop(key, None)
                     if len(self._active) >= MAX_ACTIVE_GROUPS:
                         self._active.popitem(last=False)
                     incident_id = uuid.uuid4().hex
                     current = {"id": incident_id, "status": "open", "last_ts": timestamp,
-                               "first_ts": timestamp, "count": 0, "severity": severity}
+                               "first_ts": timestamp, "count": 0, "severity": severity,
+                               "incident_gap_s": incident_gap_s}
                     self._active[key] = current
                 else:
                     incident_id = current["id"]
                     current["first_ts"] = min(current.get("first_ts", timestamp), timestamp)
                     current["last_ts"] = max(current["last_ts"], timestamp)
                     current["count"] = current.get("count", 0) + 1
+                    current["incident_gap_s"] = incident_gap_s
                     if SEVERITY_RANK.get(severity, 0) > SEVERITY_RANK.get(current["severity"], 0):
                         current["severity"] = severity
                 if current["count"] == 0:

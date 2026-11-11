@@ -84,7 +84,7 @@ def validate_policy(value):
         if not isinstance(rule, dict):
             error(path, "must be an object")
             continue
-        allowed = {"id", "detector", "enabled", "severity", "action", "params",
+        allowed = {"id", "detector", "enabled", "severity", "action", "incident_gap_s", "params",
                    "allowlist", "description"}
         for key in rule.keys() - allowed:
             error(f"{path}.{key}", "unknown property")
@@ -111,6 +111,12 @@ def validate_policy(value):
         if ("action" in rule and
                 (not isinstance(rule["action"], str) or rule["action"] not in {"alert", "log"})):
             error(f"{path}.action", 'must be "alert" or "log"')
+        if "incident_gap_s" in rule:
+            gap = rule["incident_gap_s"]
+            if isinstance(gap, bool) or not isinstance(gap, (int, float)):
+                error(f"{path}.incident_gap_s", "must be a number")
+            elif not math.isfinite(gap) or gap <= 0:
+                error(f"{path}.incident_gap_s", "must be positive")
         if "description" in rule and not isinstance(rule["description"], str):
             error(f"{path}.description", "must be a string")
 
