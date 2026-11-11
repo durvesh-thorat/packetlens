@@ -1,0 +1,274 @@
+# PacketLens Production Readiness Roadmap
+
+**Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
+**Last reviewed:** 2026-11-11
+**Overall status:** Prototype / research project; production readiness not established.
+**Current milestone:** M0 — define a specific deployment target.
+**Decision owner:** Project maintainer.
+
+> This is a living engineering record, not a promise or certification. Mark work DONE only
+> after its exit criteria are met and evidence is recorded. An AI agent saying “done” is
+> not evidence by itself.
+
+## 1. Final aim
+
+Develop PacketLens into a dependable, narrowly scoped, **alert-only** network monitoring
+system for one authorized deployment environment. It should accurately describe what it
+can inspect, make detection and service health understandable to operators, preserve
+important incidents reliably, and fail visibly rather than silently appearing healthy.
+
+The first real deployment must not automatically block, change, or disrupt traffic.
+“Production-ready” applies only to a named environment, configuration, workload, and set
+of acceptance criteria. It does not mean PacketLens is a general replacement for mature
+IDS products.
+
+## 2. Scope decisions (complete before a pilot)
+
+- Intended environment: one Windows 11 workstation for on-demand offline analysis and
+  replay of PCAP files. This is the first validation target, not live monitoring or a
+  production claim.
+- Operating system: Windows 11 is the target to validate, not yet a verified support
+  claim.
+- Network authorization: analyze only captures the maintainer owns or is explicitly
+  authorized to handle. Treat capture contents as sensitive.
+- Operator and response: the project maintainer reviews alerts; PacketLens is alert-only
+  and does not automatically block traffic.
+- Capture source: supported PCAP formats and link types only. Do not claim pcapng support;
+  convert only as documented and verified. Live Linux `AF_PACKET` is outside this first
+  target.
+- Traffic capacity: no live traffic-rate target. Maximum file size and processing-capacity
+  limits are **TBD** until baseline and load measurements are recorded.
+- Detection scope: existing packet/time-volume detectors only. Offline CIC-IDS2017 flow
+  experiments remain separate and are not part of live or PCAP packet detection.
+- False-alarm and detection acceptance targets: measurable targets are **TBD**; set them
+  from representative evidence before a pilot. Do not invent numerical targets.
+- Data handling: local-only; captures, addresses, names, and alerts are sensitive. Set a
+  retention/deletion period (**TBD**) before using real captures. Until then, use
+  synthetic or appropriately authorized data.
+- Availability and recovery: on-demand analysis only; no 24/7 availability promise.
+  Backup/recovery requirements are **TBD** before deployment.
+
+These decisions define a validation target, not a verified support or production claim.
+Resolve each **TBD** before the relevant pilot or deployment activity.
+
+## 3. Current baseline (documented, not freshly audited)
+
+- Python package/CLI. The documented core uses the Python standard library.
+- Packet-capture reading/writing and byte-level parsing for supported link and network
+protocols. Documented supported link types include Ethernet and Linux cooked frames.
+- Packet/time-volume detectors documented for port probing, SYN floods, DNS-tunnel-like
+behavior, ARP mapping changes, horizontal scans, and unusual traffic volume.
+- JSON policies, SQLite incident/host storage, local dashboard, and standalone HTML
+reports.
+- Live capture uses Linux `AF_PACKET` and requires suitable privileges. It observes only
+traffic delivered to the selected interface.
+- Optional CIC-IDS2017 flow experiments run offline and are **not part of live packet
+analysis**.
+- Documented caveats include unsupported IPv6 extension-header traversal, no built-in
+TLS for the HTTP server, and limited dataset/label evidence.
+- Synthetic traffic and labels are generated together; synthetic scores do not estimate
+field performance. Real-data results and benchmarks are also bounded by their recorded
+dataset, split, machine, and measurement setup.
+
+Review the current source, tests, and these documents before relying on this summary:
+`README.md`, `docs/EVALUATION_PROTOCOL.md`, `docs/LIMITATIONS.md`, `docs/RESULTS.md`,
+`results/*.json`, and `tests/`.
+
+## 4. Target architecture (direction, not a rewrite requirement)
+
+Keep the current architecture simple unless measurements justify a change. Evolve it in
+small, tested steps:
+
+1. **Capture adapter:** PCAP or authorized live source; report source errors and observable
+packet drops. Keep capture privileges as narrow as practical.
+2. **Ingestion:** If capture and analysis are decoupled, use bounded buffering and define
+overload behavior. Never silently claim healthy monitoring while falling behind.
+3. **Parser/normalized packet:** Validate lengths and protocol boundaries; treat all
+packet-derived data as untrusted; count malformed and unsupported input.
+4. **Detection/policy:** Keep live packet rules separate from offline ML experiments.
+Make rule identifiers, thresholds, policy decisions, and alert evidence inspectable.
+5. **Persistence:** Define storage bounds, retention, backup/recovery, shutdown behavior,
+and visible handling of database/disk failures.
+6. **API/dashboard/reports:** Minimize exposed data/actions; safely render untrusted values;
+show stale data and service health. Remote exposure requires a separate security design.
+7. **Operations:** Structured logs, useful health/metrics, installation/upgrade/rollback
+steps, and a concise operator runbook.
+
+## 5. Milestones and status
+
+Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
+Update a milestone only with test/evidence links or an exact command and result.
+
+### M0 — Define the target
+**Status: IN PROGRESS**
+Choose one authorized environment; fill Section 2; define measurable acceptance targets,
+operator responsibilities, data handling, and explicit non-goals.
+**Exit:** Section 2 is complete and reviewed by the maintainer.
+
+### M1 — Reproduce the baseline
+**Status: DONE — baseline captured; known checks skipped/unavailable**
+Inspect the worktree first; run existing tests and documented checks; record OS, Python,
+commands, outputs, and failures. Do not mix unrelated fixes into baseline work.
+**Exit:** The baseline run, failures, and unavailable checks are recorded. This captures
+the Dev Container baseline; it does not establish support for other operating systems or
+independent reproduction by another developer.
+
+### M2 — Verify correctness boundaries
+**Status: NOT STARTED**
+Document supported inputs and known gaps. Add focused tests for relevant malformed,
+truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
+**Exit:** Supported behavior is tested/documented; unsupported input is not reported as
+successfully analyzed.
+
+### M3 — Reliability and observability
+**Status: NOT STARTED**
+Measure representative load, memory, processing delay, and data loss. Test shutdown,
+overload, database errors, disk-full handling, and recovery. Define retention and backup.
+**Exit:** Operators can detect stale/degraded monitoring and storage failures; recovery is
+documented and tested.
+
+### M4 — Security and privacy review
+**Status: NOT STARTED**
+Threat-model the chosen environment. Review dashboard/API access, sensitive data, tokens,
+file permissions, privilege boundaries, retention, and untrusted packet-derived output.
+Do not expose the built-in HTTP server directly to an untrusted network.
+**Exit:** An experienced reviewer approves the design for the specific deployment.
+
+### M5 — Validate detection quality
+**Status: NOT STARTED**
+Evaluate representative benign traffic and independently labeled attack examples where
+available. Keep final test data out of tuning. Report per-rule precision/recall, false
+alarms per hour, misses, uncertainty, and known leakage/label risks. Have a human review
+alert usefulness.
+**Exit:** Each enabled rule meets M0 targets for relevant evidence, or is disabled/marked
+experimental. Synthetic evaluation alone does not pass this milestone.
+
+### M6 — Controlled pilot
+**Status: NOT STARTED**
+Package deployment for the chosen environment; document install, health checks, triage,
+rollback, and shutdown. Run alert-only on an authorized pilot; compare observations with
+an independent source; review operator workload and resource use.
+**Exit:** The agreed observation period meets M0 criteria with no unresolved critical
+security, correctness, or data-loss issue. A pilot does not prove generalization.
+
+### M7 — Deployment decision
+**Status: NOT STARTED**
+Obtain security/operations review, record remaining risks and owners, and explicitly approve
+or reject the exact environment and configuration.
+**Exit:** Written decision is scoped to the tested deployment. Reassess after significant
+code, policy, data, or infrastructure changes.
+
+## 6. AI-agent workflow and safety rules
+
+The project maintainer remains accountable. Agents may research, implement, and review,
+but may not approve their own work or deployment.
+
+- Use one coordinator (the main Copilot Agent) to read this roadmap, pick one task, and
+integrate results.
+- Researcher and Reviewer roles are read-only. Give them a precise question and expected
+output; do not ask them to “fix everything.”
+- Use one Implementer for one bounded task. Avoid simultaneous edits to the same files.
+Use separate worktrees/branches for independent implementation tasks.
+- Each task must state the goal, files in scope, files out of scope, acceptance criteria,
+tests, and stop conditions.
+- Keep command approval prompts enabled. Run only the commands needed for the task. Do
+not auto-approve broad shell commands, installs, credential access, network exposure,
+deletion, deployment, pushes, or system-setting changes.
+- Work inside an isolated Dev Container/VM with no personal files or secrets exposed.
+A worktree separates edits; it is not itself a security sandbox.
+- Never place credentials, private captures, or sensitive identifiers in prompts, tests,
+logs, or this roadmap. Never commit secrets.
+- Do not claim a test, audit, performance result, or deployment passed unless it actually
+ran and its evidence is recorded.
+- Preserve unrelated user changes. No destructive cleanup or broad refactoring without
+explicit maintainer approval.
+- If an agent cannot verify a claim, it must label it unverified. If acceptance criteria
+are ambiguous or a security-sensitive decision is required, stop and ask the maintainer.
+
+### Required task report from every implementation agent
+
+- Task/milestone and goal
+- Files changed
+- Behavior changed
+- Exact validation command(s) and result
+- Evidence/artifact location
+- Known limitations and unverified assumptions
+- Suggested next task
+
+## 7. Definition of project completion
+
+The project is not “done” because all planned code was written. It is ready only for the
+specific pilot/production scope when M0–M7 exit criteria are satisfied, required checks
+are reproducible, detection targets are supported by relevant evidence, security/privacy
+and operational reviews are complete, and no critical blocker remains. The maintainer
+records the final decision and accepted residual risks. Readiness is never a universal
+claim for other networks.
+
+## 8. Free-tier and continuity policy
+
+- Prefer local tools and existing dependencies; do not add paid services by default.
+- Record progress here so work survives a new chat, model, or account session.
+- Free quotas and agent availability can change; verify current provider terms.
+- Do not create/switch accounts to bypass usage limits or plan restrictions.
+- If AI quota runs out, pause AI work or continue only with tools permitted by the plan.
+This file and the repository—not chat history—are the project’s source of truth.
+
+## 9. Progress log
+
+### 2026-11-11 — Roadmap initialized
+- Overall status: prototype; production readiness not established.
+- Current milestone: M0.
+- Evidence: repository documentation and saved evaluation artifacts; no fresh baseline
+test run recorded in this log.
+- Next task: complete M0 scope decisions, then run M1 baseline checks.
+
+#### 2026-11-11 — M1 Dev Container baseline captured
+- Milestone/status: M1 — DONE (baseline captured; known checks skipped/unavailable).
+- Goal and files changed: Capture the baseline in the Dev Container; updated
+  `PRODUCTION_ROADMAP.md` only.
+- Validation command(s) and exact result:
+  - `python -c "import platform, os; print(platform.system(), platform.release(), os.getcwd())"`
+    — exit 0; `Linux 6.18.33.2-microsoft-standard-WSL2 /workspaces/packetlens`.
+  - `python --version` — exit 0; `Python 3.12.16`.
+  - `git status --short --branch` — exit 0; worktree not clean, with many pre-existing
+    modified and untracked files, including this roadmap, agent profiles, and
+    `.devcontainer/`. These changes were preserved.
+  - `python -m unittest discover -s tests -v` — exit 0; 70 tests total, 52 passed,
+    18 skipped, 0 failed. Skips include unavailable optional `pandas`, `scikit-learn`,
+    `torch`, and `tsfm_public`. Output was compacted; individual test and skip details
+    were not captured.
+  - `node --check packetlens/static/app.js` — exit 127; `node: command not found`.
+    Unavailable; not passed. Node was not installed.
+- Evidence/artifact: This entry records the Dev Container run. A prior host-side run
+  reported the same unittest counts but is separate evidence and is not proof of Windows
+  11 support.
+- Remaining risks or unverified assumptions: Individual test/skip details and the
+  JavaScript syntax check remain unverified. This baseline does not establish Windows 11
+  support or production readiness.
+- Next task: Review M1 evidence and continue M0 scope decisions.
+
+### Progress-entry template
+
+#### YYYY-MM-DD — Short task name
+- Milestone/status:
+- Goal and files changed:
+- Validation command(s) and exact result:
+- Evidence/artifact:
+- Remaining risks or unverified assumptions:
+- Next task:
+
+## 10. Maintainer decision log
+
+Record scope, security, privacy, deployment, and risk-acceptance decisions here. AI agents
+may prepare evidence or options, but only the project maintainer can approve a decision.
+
+### Decision entry template
+
+#### DEC-YYYY-MM-DD — Short decision title
+- Decision and exact scope:
+- Decision owner:
+- Reviewers consulted:
+- Evidence and alternatives considered:
+- Risks accepted / rejected:
+- Approval status: `PROPOSED` / `APPROVED` / `REJECTED` / `EXPIRED`
+- Review date or trigger:
