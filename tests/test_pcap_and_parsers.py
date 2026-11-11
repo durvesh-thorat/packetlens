@@ -1,13 +1,19 @@
 import os
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
 from packetlens import synth
 from packetlens.parsers import ACK, SYN, parse_dns, parse_packet
 from packetlens.pcap import PcapError, PcapReader, PcapWriter
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PcapTests(unittest.TestCase):
@@ -137,6 +143,39 @@ class PcapTests(unittest.TestCase):
             writer.write(1.0, b"longer than zero")
         with PcapReader(path) as reader:
             self.assertEqual(list(reader), [(1.0, b"longer than zero")])
+
+
+class UnsupportedLinkTypeCliTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pcap = os.path.join(self.temp.name, "unsupported-linktype.pcap")
+        with PcapWriter(self.pcap, linktype=999):
+            pass
+
+    def _assert_cli_rejects_capture(self, command):
+        result = subprocess.run(
+            command, cwd=ROOT, capture_output=True, text=True, timeout=30
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(
+            "Unsupported link type 999. Supported: Ethernet (1) and Linux cooked (113).",
+            result.stderr,
+        )
+
+    def test_analyze_rejects_unsupported_link_type(self):
+        self._assert_cli_rejects_capture(
+            [sys.executable, "-m", "packetlens", "analyze", self.pcap]
+        )
+
+    def test_serve_rejects_unsupported_link_type(self):
+        db = os.path.join(self.temp.name, "serve.db")
+        self._assert_cli_rejects_capture(
+            [
+                sys.executable, "-m", "packetlens", "serve", "--pcap", self.pcap,
+                "--db", db,
+            ]
+        )
 
 
 class ParserTests(unittest.TestCase):
