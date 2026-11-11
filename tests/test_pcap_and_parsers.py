@@ -40,6 +40,51 @@ class PcapTests(unittest.TestCase):
         self.assertEqual([d for _, d in out], [b"abc", b"defgh"])
         self.assertAlmostEqual(out[0][0], 1700000000.25, places=5)
 
+    def test_version_2_4_is_valid_in_both_byte_orders(self):
+        formats = (
+            ("little-endian", "<", 0xA1B2C3D4),
+            ("big-endian", ">", 0xA1B2C3D4),
+        )
+        for label, endian, magic in formats:
+            with self.subTest(format=label):
+                path = self._temporary_capture_path()
+                with open(path, "wb") as f:
+                    f.write(struct.pack(endian + "IHHiIII", magic, 2, 4, 0, 0, 65535, 1))
+                with PcapReader(path) as reader:
+                    self.assertEqual(list(reader), [])
+
+    def test_unsupported_version_is_rejected_before_reading_records(self):
+        class TrackingStream(BytesIO):
+            def __init__(self, data):
+                super().__init__(data)
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                return super().read(size)
+
+        formats = (
+            ("little-endian", "<", 0xA1B2C3D4),
+            ("big-endian", ">", 0xA1B2C3D4),
+        )
+        versions = ((1, 4), (2, 5))
+        for label, endian, magic in formats:
+            for major, minor in versions:
+                with self.subTest(format=label, version=f"{major}.{minor}"):
+                    stream = TrackingStream(
+                        struct.pack(
+                            endian + "IHHiIII", magic, major, minor, 0, 0, 65535, 1
+                        )
+                        + struct.pack(endian + "IIII", 1, 0, 0, 0)
+                    )
+                    with patch("builtins.open", return_value=stream):
+                        with self.assertRaisesRegex(
+                            PcapError,
+                            f"unsupported classic pcap version {major}.{minor}",
+                        ):
+                            PcapReader("unused.pcap")
+                    self.assertEqual(stream.read_sizes, [24])
+
     def test_big_endian_nanosecond_file(self):
         """Same data written big-endian with nanosecond timestamps must read identically."""
         path = self._temporary_capture_path()

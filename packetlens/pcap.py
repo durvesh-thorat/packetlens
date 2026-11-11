@@ -29,11 +29,16 @@ class PcapReader:
         try:
             head = self._f.read(24)
             self._check(head)
+            self._endian, self._res = _MAGIC[head[:4]]
+            fields = struct.unpack(self._endian + "4sHHiIII", head)
+            if fields[1:3] != (2, 4):
+                raise PcapError(
+                    f"unsupported classic pcap version {fields[1]}.{fields[2]}; "
+                    "expected 2.4"
+                )
         except PcapError:
             self._f.close()
             raise
-        self._endian, self._res = _MAGIC[head[:4]]
-        fields = struct.unpack(self._endian + "4sHHiIII", head)
         self.snaplen, self.linktype = fields[5], fields[6]
 
     @staticmethod
