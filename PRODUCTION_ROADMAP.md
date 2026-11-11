@@ -315,6 +315,41 @@ test run recorded in this log.
 - Next task: Have the coordinator select one further focused M2 boundary check (for
   example, unsupported link-type behavior); do not infer M2 completion from this entry.
 
+#### 2026-11-11 — Enforce classic pcap snaplen bounds
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-PCAP record captured lengths larger than the
+  global-header snaplen before payload reads, and reject writer data larger than its
+  configured snaplen. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for `incl_len > snaplen`, while
+  retaining the existing `incl_len > orig_len` error precedence. Captures with
+  `incl_len < orig_len` remain valid when within snaplen. `PcapWriter` rejects packet
+  data larger than a nonzero configured snaplen instead of truncating it. Existing
+  zero-snaplen behavior is preserved: the reader and writer impose no size bound when
+  snaplen is zero.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    21 tests run, all passed.
+  - `python -m unittest discover -s tests -v` — exit 0; 78 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0 after all changes.
+  - Independent PacketLens Reviewer review — no actionable correctness, regression,
+    or focused-test gaps found in the supplied diff; reviewer did not run tests.
+- Evidence/artifact: Focused regression tests in `tests/test_pcap_and_parsers.py` cover
+  captured length equal to snaplen, greater than snaplen before payload read, smaller
+  than original but within snaplen, original-length error precedence, writer rejection,
+  and existing zero-snaplen behavior.
+- Remaining risks or unverified assumptions: Zero-snaplen meaning is not defined by
+  repository documentation or prior tests; current behavior is preserved and its
+  format-level meaning remains unverified. Eighteen optional-dependency tests were
+  skipped as noted above. This task does not complete M2 or validate other PCAP
+  metadata/boundaries. Windows 11 behavior and the remaining M0 decisions are still
+  unverified/TBD.
+- Next task: Continue M2 with one separate focused correctness-boundary task; do not
+  infer M2 completion from this entry.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name

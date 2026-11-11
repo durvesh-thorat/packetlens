@@ -57,9 +57,11 @@ exports a standalone HTML report.
 * **CIC-IDS2017 evaluation — offline and optional:** one-minute flow-series experiments and per-flow classifiers.
   Their scope and evidence limits are documented in the evaluation protocol and limitations.
 
-Classic pcap captures with a partial record header or packet payload, or a captured packet length greater than its
-original packet length, are rejected with an error. A captured length smaller than the original length is valid
-(snap-truncated capture); an empty capture with a complete global header is also valid. Pcapng is not supported.
+Classic pcap captures with a partial record header or packet payload, or a captured packet length greater than the
+global-header snaplen or original packet length, are rejected with an error before packet data is read. A captured
+length smaller than the original length is valid when it is within snaplen (snap-truncated capture); an empty
+capture with a complete global header is also valid. The writer rejects packet data larger than its configured
+snaplen rather than truncating it. Pcapng is not supported.
 
 The flow-level machine learning experiments (Isolation Forest, Random Forest, Granite Time Series) run offline on CIC-IDS2017 flow tables. They are not part of the live packet pipeline.
 
