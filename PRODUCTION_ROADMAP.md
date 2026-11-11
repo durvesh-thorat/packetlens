@@ -350,6 +350,37 @@ test run recorded in this log.
 - Next task: Continue M2 with one separate focused correctness-boundary task; do not
   infer M2 completion from this entry.
 
+#### 2026-11-11 — Test CLI rejection of unsupported PCAP link types
+- Milestone/status: M2 — IN PROGRESS; this is a focused CLI regression check, not
+  completion of the milestone.
+- Goal and files changed: Add subprocess regression tests verifying that `analyze` and
+  `serve --pcap` reject a classic-PCAP capture with unsupported link type 999 using
+  the existing CLI diagnostic. Changed `tests/test_pcap_and_parsers.py`; no production
+  behavior changed.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    23 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 80 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol show --check HEAD` — exit 0.
+- Evidence/artifact: Both CLI regression tests use a valid empty classic-PCAP header
+  with link type 999 and assert nonzero exit plus the unsupported-link-type diagnostic.
+  Existing CLI checks reject unsupported link types before processing the capture.
+- Review findings: PacketLens Reviewer was invoked, but reported it could not access
+  Git status/diff and did not review files or run tests. Independent review is
+  unavailable; this is not a no-findings review, and the review gate remains unmet.
+- Remaining risks or unverified assumptions: Coverage uses link type 999 and does not
+  alter or validate parser behavior. At inspection, commit `a36dd172` containing only
+  the test-file change was already present at HEAD and the cached
+  `origin/roadmap/m2-pcap-boundaries` ref; its live remote state could not be verified
+  because `git ls-remote` could not authenticate. This commit appeared before the
+  required review gate was satisfied. Windows 11 behavior and remaining M0 decisions
+  remain unverified/TBD; this does not complete M2.
+- Next task: Continue M2 with one further focused correctness-boundary task only after
+  the review and publication state of this change is resolved; do not infer M2
+  completion from this entry.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
