@@ -1,5 +1,6 @@
 import argparse
 import json
+import shlex
 import sqlite3
 import sys
 import time
@@ -118,25 +119,49 @@ def cmd_live(a):
 
 def cmd_evaluate(a):
     from .evaluate import evaluate, print_report, save
+    from .provenance import build_meta
     r = evaluate(a.duration)
     print_report(r)
     if a.save:
+        r["meta"] = build_meta(
+            a.command_line, seeds={"benign_traffic": 7, "attack_traffic": 8})
         save(r, a.save)
 
 
 def cmd_flows(a):
     from .flows import evaluate_flows, print_report, save_report
+    from .provenance import build_meta
+    meta = (build_meta(a.command_line, [*a.benign, *a.attack],
+                       seeds={"isolation_forest": 0, "bootstrap": 42})
+            if a.save else None)
     result = evaluate_flows(a.benign, a.attack, a.freq, a.train_frac, a.min_attack_flows, a.z,
                             granite=a.granite)
     print_report(result)
     if a.save:
-        save_report(result, a.save, a.train_frac, a.freq)
+        save_report(result, a.save, a.train_frac, a.freq, meta=meta)
 
 
 def cmd_flowmodel(a):
     from .flowmodel import run_experiment
+    from .provenance import build_meta
+    meta = (build_meta(a.command_line, [a.file],
+                       seeds={"random_forest": 42, "isolation_forest": 42, "bootstrap": 42})
+            if a.save else None)
     run_experiment(a.file, a.train_frac, a.extended, a.diagnose, a.audit_labels, a.save,
-                   attack_label=a.attack_label)
+                   attack_label=a.attack_label, meta=meta)
+
+
+def cmd_reproduce(a):
+    from .reproduce import reproduce
+    return reproduce(a.data_dir, skip_real=a.skip_real, write=a.write,
+                     command_line=a.command_line)
+
+
+def cmd_render_results(_a):
+    from .render_results import render_results
+    markdown_path, readme_path = render_results()
+    print(f"wrote {markdown_path}")
+    print(f"updated {readme_path}")
 
 
 def cmd_bench(a):
@@ -244,6 +269,16 @@ def main(argv=None):
     s.add_argument("--save", help="write the printed results and run metadata as JSON")
     s.set_defaults(fn=cmd_flowmodel)
 
+    s = sub.add_parser("reproduce", help="run published experiments and compare result JSON files")
+    s.add_argument("--skip-real", action="store_true", help="run only synthetic evaluation and benchmark")
+    s.add_argument("--data-dir", default="cicids2017_traffic_label",
+                   help="directory containing CIC-IDS2017 flow CSV files")
+    s.add_argument("--write", action="store_true", help="overwrite result JSON files (default: dry run)")
+    s.set_defaults(fn=cmd_reproduce)
+
+    s = sub.add_parser("render-results", help="generate docs/RESULTS.md and the README results block")
+    s.set_defaults(fn=cmd_render_results)
+
     s = sub.add_parser("bench", help="throughput in packets per second")
     s.add_argument("--duration", type=int, default=600)
     s.set_defaults(fn=cmd_bench)
@@ -276,7 +311,9 @@ def main(argv=None):
             v.add_argument("--note", default="")
         v.set_defaults(fn=cmd_incidents)
 
-    a = p.parse_args(argv)
+    command_args = list(sys.argv[1:] if argv is None else argv)
+    a = p.parse_args(command_args)
+    a.command_line = shlex.join(["python", "-m", "packetlens", *command_args])
     try:
         a.fn(a)
     except (PcapError, ValueError, RuntimeError, FileNotFoundError, PermissionError, sqlite3.Error) as e:

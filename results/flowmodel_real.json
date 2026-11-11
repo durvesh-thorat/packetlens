@@ -14,6 +14,36 @@
     "Bot": 81,
     "BENIGN": 5902
   },
+  "duplicate_check": {
+    "per_class": {
+      "Bot": {
+        "test_rows": 667,
+        "exact_duplicates": 81,
+        "exact_duplicate_rate": 0.121439,
+        "duplicate_free_rows": 586
+      },
+      "BENIGN": {
+        "test_rows": 75747,
+        "exact_duplicates": 5902,
+        "exact_duplicate_rate": 0.077917,
+        "duplicate_free_rows": 69845
+      }
+    },
+    "duplicate_free_test": {
+      "rows": 70431,
+      "metrics": {
+        "precision": 0.5595,
+        "recall": 0.1604,
+        "f1": 0.2493,
+        "average_precision": 0.1672,
+        "tn": 69771,
+        "fp": 74,
+        "fn": 492,
+        "tp": 94,
+        "fp_per_1000_benign": 1.06
+      }
+    }
+  },
   "dropped_labels": 0,
   "results": [
     {
@@ -33,15 +63,15 @@
     {
       "model": "Logistic regression",
       "metrics": {
-        "precision": 0.1536,
+        "precision": 0.1537,
         "recall": 0.9955,
-        "f1": 0.2661,
-        "average_precision": 0.1226,
-        "tn": 72088,
-        "fp": 3659,
+        "f1": 0.2663,
+        "average_precision": 0.1229,
+        "tn": 72091,
+        "fp": 3656,
         "fn": 3,
         "tp": 664,
-        "fp_per_1000_benign": 48.31
+        "fp_per_1000_benign": 48.27
       }
     },
     {
@@ -55,7 +85,46 @@
         "fp": 90,
         "fn": 492,
         "tp": 175,
-        "fp_per_1000_benign": 1.19
+        "fp_per_1000_benign": 1.19,
+        "false_alarms_per_hour": 41.538462,
+        "bootstrap": {
+          "precision": {
+            "value": 0.660377,
+            "ci95": [
+              0.41915,
+              0.804072
+            ],
+            "n": 130,
+            "note": null
+          },
+          "recall": {
+            "value": 0.262369,
+            "ci95": [
+              0.115463,
+              0.410833
+            ],
+            "n": 130,
+            "note": null
+          },
+          "f1": {
+            "value": 0.375536,
+            "ci95": [
+              0.181544,
+              0.540465
+            ],
+            "n": 130,
+            "note": null
+          },
+          "false_alarms_per_hour": {
+            "value": 41.538462,
+            "ci95": [
+              29.076923,
+              54.969231
+            ],
+            "n": 130,
+            "note": null
+          }
+        }
       }
     },
     {
@@ -133,9 +202,95 @@
   "train_frac": 0.6,
   "bin_width": null,
   "library_versions": {
-    "python": "3.14.6",
-    "numpy": "2.5.2",
-    "pandas": "3.0.5",
-    "scikit-learn": "1.9.0"
+    "python": "3.12.10",
+    "numpy": "1.26.4",
+    "pandas": "3.0.6",
+    "scikit-learn": "1.9.1"
+  },
+  "diagnostics": {
+    "cleaner_machine_split": {
+      "held_out_source_ips": [
+        "192.168.10.12",
+        "192.168.10.15",
+        "192.168.10.17",
+        "192.168.10.5",
+        "192.168.10.9"
+      ],
+      "counts": {
+        "train": {
+          "attack": 722,
+          "BENIGN": 95752
+        },
+        "test": {
+          "attack": 781,
+          "BENIGN": 76229
+        }
+      },
+      "random_forest": {
+        "precision": 0.9881,
+        "recall": 0.9565,
+        "f1": 0.972,
+        "average_precision": 0.991,
+        "tn": 76220,
+        "fp": 9,
+        "fn": 34,
+        "tp": 747,
+        "fp_per_1000_benign": 0.12
+      }
+    },
+    "cleaner_without_external_sources": {
+      "held_out_source_ips": [
+        "192.168.10.12",
+        "192.168.10.15",
+        "192.168.10.17",
+        "192.168.10.5",
+        "192.168.10.9"
+      ],
+      "counts": {
+        "train": {
+          "attack": 0,
+          "BENIGN": 95752
+        },
+        "test": {
+          "attack": 781,
+          "BENIGN": 76229
+        }
+      },
+      "random_forest": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "average_precision": 0.0101,
+        "tn": 76229,
+        "fp": 0,
+        "fn": 781,
+        "tp": 0,
+        "fp_per_1000_benign": 0.0
+      }
+    }
+  },
+  "meta": {
+    "command_line": "python -m packetlens reproduce --write",
+    "utc_time": "2026-11-11T07:53:10Z",
+    "versions": {
+      "python": "3.12.10",
+      "numpy": "1.26.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1"
+    },
+    "seeds": {
+      "random_forest": 42,
+      "isolation_forest": 42,
+      "bootstrap": 42
+    },
+    "dataset_files": [
+      {
+        "name": "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+        "status": "available",
+        "size_bytes": 75386737,
+        "sha256": "c061cd98f39d8054aeaed6244a5129a20b3985983d0d022b860ae8aa07fe8d21"
+      }
+    ],
+    "skipped": []
   }
 }

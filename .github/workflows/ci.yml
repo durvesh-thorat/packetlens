@@ -5,9 +5,10 @@ on:
   pull_request:
 
 jobs:
-  tests:
+  core-tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
@@ -15,8 +16,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install optional test dependencies
-        run: python -m pip install pandas numpy scikit-learn
-      - name: Run tests with optional dependencies
+      - name: Run tests without optional dependencies
         run: python -m unittest discover -s tests -v
         timeout-minutes: 5
+      - name: Check dashboard JavaScript syntax
+        run: node --check packetlens/static/app.js
+      - name: Report tracked file sizes and enforce 5 MiB limit
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["git", "ls-files", "-z"], check=True, capture_output=True
+          )
+          paths = [path.decode("utf-8", errors="surrogateescape")
+                   for path in result.stdout.split(b"\0") if path]
+          sizes = sorted(
+              ((os.path.getsize(path), path) for path in paths if os.path.isfile(path)),
+              reverse=True,
+          )
+          print("10 largest tracked files:")
+          for size, path in sizes[:10]:
+              print(f"{size / 1_000_000:.2f} MB  {path}")
+          oversized = [(size, path) for size, path in sizes if size > 5_000_000]
+          if oversized:
+              print("Tracked files exceed the 5 MB limit:", file=sys.stderr)
+              for size, path in oversized:
+                  print(f"{size / 1_000_000:.2f} MB  {path}", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+
+  optional-ml-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install optional ML dependencies
+        run: python -m pip install ".[ml]"
+      - name: Run tests with pandas and scikit-learn
+        run: python -m unittest discover -s tests -v
+        timeout-minutes: 10
