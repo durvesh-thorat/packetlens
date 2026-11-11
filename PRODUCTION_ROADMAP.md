@@ -114,7 +114,7 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: NOT STARTED**
+**Status: IN PROGRESS**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
@@ -246,6 +246,38 @@ test run recorded in this log.
   JavaScript syntax check remain unverified. This baseline does not establish Windows 11
   support or production readiness.
 - Next task: Review M1 evidence and continue M0 scope decisions.
+
+#### 2026-11-11 — Reject truncated classic pcap records
+- Milestone/status: M2 — IN PROGRESS; this is one bounded boundary fix, not completion
+  of the milestone.
+- Goal and files changed: Make partial pcap record headers and packet payloads explicit
+  errors while preserving a valid empty capture. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for a partial record header or packet
+  payload instead of silently ending iteration. A complete global header with no records
+  remains valid. Documented that behavior and retained the pcapng limitation.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    15 tests run, all passed.
+  - `python -m unittest discover -s tests -v` — exit 0; 72 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - CLI truncation check using a temporary truncated capture — exit 1 as expected;
+    stderr: `error: truncated pcap packet data`.
+  - `node --check packetlens/static/app.js` — exit 127; unavailable because `node` is
+    not installed. Not passed.
+  - `git diff --check` — exit 2 because the repository files use CRLF and Git treated
+    added CR characters as trailing whitespace. CRLF-aware check,
+    `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: `PRODUCTION_ROADMAP.md`, `README.md`, and the focused regression
+  tests in `tests/test_pcap_and_parsers.py`; runtime was Python 3.12.16 on Linux.
+- Remaining risks or unverified assumptions: This change covers physically truncated
+  record headers and packet payloads only; semantic bounds such as captured length versus
+  snaplen/original length remain unverified. Optional-dependency tests and the JavaScript
+  syntax check were unavailable/skipped as noted above. M0 maintainer decisions remain
+  as recorded in Section 2; no TBD was resolved here.
+- Next task: Continue M2 with one focused validation of malformed record metadata or
+  unsupported link types, without treating this task as full pcap format validation.
 
 ### Progress-entry template
 
