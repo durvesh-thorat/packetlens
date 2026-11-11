@@ -24,4 +24,4 @@ packetlens = "packetlens.cli:main"
 include = ["packetlens*"]
 
 [tool.setuptools.package-data]
-packetlens = ["static/*.html"]
+packetlens = ["static/*.html", "static/*.js", "static/*.css", "policies/*.json"]

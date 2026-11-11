@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "name": "PacketLens defaults",
+  "incident_gap_s": 300,
+  "policies": [
+    {
+      "id": "port-scan",
+      "detector": "port_scan",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "windows": [[10, 20], [300, 60]],
+        "cooldown": 60
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect horizontal and vertical TCP SYN port probes."
+    },
+    {
+      "id": "syn-flood",
+      "detector": "syn_flood",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "threshold": 300,
+        "cooldown": 30
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect high-rate SYN traffic to one service."
+    },
+    {
+      "id": "dns-tunnel",
+      "detector": "dns_tunnel",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "span": 60,
+        "min_unique": 10,
+        "min_avg_len": 20,
+        "min_avg_entropy": 3.3,
+        "cooldown": 60
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect long, high-entropy DNS subdomains."
+    },
+    {
+      "id": "arp-spoof",
+      "detector": "arp_spoof",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "cooldown": 60
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect changes to an IP-to-MAC mapping."
+    },
+    {
+      "id": "horizontal-scan",
+      "detector": "horizontal_scan",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "window_s": 10,
+        "min_hosts": 30,
+        "ignore_ports": [80, 443],
+        "cooldown": 60
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect one source probing a service across many hosts."
+    },
+    {
+      "id": "volumetric",
+      "detector": "volumetric",
+      "enabled": true,
+      "action": "alert",
+      "params": {
+        "metrics": ["packets", "bytes", "syn", "dns"],
+        "alpha": 0.05,
+        "z": 6.0,
+        "warmup": 30,
+        "rearm": 5
+      },
+      "allowlist": {
+        "src": [],
+        "dst": []
+      },
+      "description": "Detect anomalous traffic-volume bins."
+    }
+  ]
+}

@@ -192,6 +192,18 @@ def _arp_spoof(t0, frames, attacker, victim, count, every=2.0):
     return t0, t0 + count * every
 
 
+def _horizontal_scan(t0, frames, attacker, pps=100, seconds=3):
+    """Probe the private /24 service range and record each target's reset reply."""
+    host_count = 253
+    for i in range(int(pps * seconds)):
+        victim = f"192.168.1.{2 + (i % host_count)}"
+        sport = 40000 + (i % 20000)
+        ts = t0 + i / pps
+        frames.append((ts, tcp_frame(attacker, victim, sport, 445, SYN)))
+        frames.append((ts + 0.0005, tcp_frame(victim, attacker, 445, sport, RST | ACK)))
+    return t0, t0 + seconds
+
+
 def generate(duration=300, seed=1, attacks=True, sessions_per_second=8.0):
     """Returns (frames, events). frames = sorted [(timestamp, ethernet_frame_bytes)].
     events = ground-truth list; `detects` names the alert kind that should catch each one."""
@@ -224,6 +236,8 @@ def generate(duration=300, seed=1, attacks=True, sessions_per_second=8.0):
             _udp_flood(rng, 230, frames, "192.168.1.202", victim, 3000, 8), True)
         add("arp_spoof", "arp_spoof", "02:00:c0:a8:01:c8",
             _arp_spoof(260, frames, "192.168.1.200", victim, 5))
+        add("horizontal_scan", "horizontal_scan", "192.168.1.203",
+            _horizontal_scan(270, frames, "192.168.1.203"))
     frames = [(BASE_TS + ts, f) for ts, f in frames]
     frames.sort(key=lambda x: x[0])
     return frames, events
