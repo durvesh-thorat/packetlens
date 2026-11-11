@@ -57,6 +57,19 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(validate_policy(json.loads(default_policy_path().read_text(encoding="utf-8"))), [])
         self.assertEqual(load_policy(default_policy_path()).incident_gap_s, 300)
 
+    def test_per_policy_incident_gap_validation_and_loading(self):
+        policy = valid_policy()
+        policy["policies"][0]["incident_gap_s"] = 12.5
+        self.assertEqual(validate_policy(policy), [])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "policy.json"
+            for gap in (0, -1, "15", True):
+                policy["policies"][0]["incident_gap_s"] = gap
+                path.write_text(json.dumps(policy), encoding="utf-8")
+                with self.assertRaisesRegex(
+                        ValueError, r"\$\.policies\[0\]\.incident_gap_s:"):
+                    load_policy(path)
+
     def test_allowlist_suppresses_source_cidr_and_placeholder_does_not_match(self):
         policy = valid_policy([{
             "id": "horizontal", "detector": "horizontal_scan", "enabled": True, "action": "alert",
@@ -174,6 +187,37 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_incidents()["total"], 0)
         self.assertEqual(self.store.summary()["total_alerts"], 1)
 
+    def test_incident_gaps_split_volumetric_but_preserve_port_scan_grouping(self):
+        first_volume = self.store.add_alert(
+            Alert(1000, "volumetric", "high", "-", "first volume alert"))
+        next_volume = self.store.add_alert(
+            Alert(1025, "volumetric", "high", "-", "separate volume alert"))
+        self.assertNotEqual(first_volume, next_volume)
+
+        close_volume = self.store.add_alert(
+            Alert(2000, "volumetric", "high", "-", "first nearby volume alert"))
+        grouped_volume = self.store.add_alert(
+            Alert(2005, "volumetric", "high", "-", "nearby volume alert"))
+        self.assertEqual(close_volume, grouped_volume)
+
+        first_scan = self.store.add_alert(
+            Alert(3000, "port_scan", "high", "10.0.0.1", "first scan"))
+        grouped_scan = self.store.add_alert(
+            Alert(3100, "port_scan", "high", "10.0.0.1", "same scan"))
+        self.assertEqual(first_scan, grouped_scan)
+
+    def test_policy_incident_gap_is_carried_to_store(self):
+        policy = valid_policy()
+        rule = policy["policies"][0]
+        rule["incident_gap_s"] = 10
+        first_alert = Alert(4000, "horizontal_scan", "high", "10.0.0.1", "first")
+        second_alert = Alert(4020, "horizontal_scan", "high", "10.0.0.1", "later")
+        first_alert = Engine._apply_policy([first_alert], rule)[0]
+        second_alert = Engine._apply_policy([second_alert], rule)[0]
+        first = self.store.add_alert(first_alert)
+        second = self.store.add_alert(second_alert)
+        self.assertNotEqual(first, second)
+
     def test_full_queue_drops_and_counts_writes(self):
         self.store._queue = queue.Queue(maxsize=1)
         entered, release = threading.Event(), threading.Event()
@@ -198,6 +242,16 @@ class IntegrationAndCliTests(unittest.TestCase):
                 engine.process(ts, frame)
             engine.finish()
             self.assertGreaterEqual(store.list_incidents()["total"], 7)
+            volumetric_incidents = store.list_incidents(kind="volumetric")["items"]
+            ranges = [
+                (round(item["first_ts"] - synth.BASE_TS, 1),
+                 round(item["last_ts"] - synth.BASE_TS, 1))
+                for item in sorted(volumetric_incidents, key=lambda row: row["first_ts"])
+            ]
+            self.assertEqual(ranges, [
+                (45.0, 45.0), (70.0, 70.0), (200.0, 200.0),
+                (230.0, 230.0), (270.0, 270.0),
+            ])
             self.assertTrue(store.list_hosts()["items"])
             self.assertTrue(store.minute_stats(0, 1_800_000_000))
             store.close()

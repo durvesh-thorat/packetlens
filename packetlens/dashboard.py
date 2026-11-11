@@ -297,6 +297,41 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                                 items.append({"name": item.name, "modified": modified})
                     self._json(200, {"items": items})
                     return
+                if path.startswith("/api/quality/"):
+                    name = path[len("/api/quality/"):]
+                    if (not name or not name.endswith(".json") or
+                            any(separator in name for separator in ("/", "\\")) or "%" in name):
+                        self._json(404, {"error": "result file not found"})
+                        return
+                    if not results_path.exists():
+                        self._json(404, {"error": "result file not found"})
+                        return
+                    if not results_path.is_dir():
+                        raise OSError("results path is not a directory")
+                    listed_names = {
+                        item.name for item in results_path.glob("*.json") if item.is_file()
+                    }
+                    if name not in listed_names:
+                        self._json(404, {"error": "result file not found"})
+                        return
+                    result_path = results_path / name
+                    if result_path.stat().st_size > MAX_BODY:
+                        self._json(400, {"error": "result file is too large"})
+                        return
+                    with result_path.open("rb") as result_file:
+                        raw = result_file.read(MAX_BODY + 1)
+                    if len(raw) > MAX_BODY:
+                        self._json(400, {"error": "result file is too large"})
+                        return
+                    try:
+                        def reject_constant(value):
+                            raise ValueError(f"invalid JSON constant {value}")
+                        report = json.loads(raw.decode("utf-8"), parse_constant=reject_constant)
+                    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                        self._json(400, {"error": f"result file is not valid JSON: {exc}"})
+                        return
+                    self._json(200, report)
+                    return
                 self._json(404, {"error": "not found"})
             except ValueError as exc:
                 self._json(400, {"error": str(exc)})

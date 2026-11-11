@@ -125,6 +125,8 @@ class Engine:
                 alert.severity = rule["severity"]
             alert.policy_id = rule["id"]
             alert._action = rule.get("action", "alert")
+            alert._incident_gap_s = rule.get("incident_gap_s")
+            alert._policy_applied = True
             result.append(alert)
         return result
 

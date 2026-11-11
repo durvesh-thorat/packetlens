@@ -87,6 +87,7 @@
       "detector": "volumetric",
       "enabled": true,
       "action": "alert",
+      "incident_gap_s": 15,
       "params": {
         "metrics": ["packets", "bytes", "syn", "dns"],
         "alpha": 0.05,
