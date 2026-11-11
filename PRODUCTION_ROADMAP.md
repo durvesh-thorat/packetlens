@@ -367,16 +367,17 @@ test run recorded in this log.
 - Evidence/artifact: Both CLI regression tests use a valid empty classic-PCAP header
   with link type 999 and assert nonzero exit plus the unsupported-link-type diagnostic.
   Existing CLI checks reject unsupported link types before processing the capture.
-- Review findings: PacketLens Reviewer was invoked, but reported it could not access
-  Git status/diff and did not review files or run tests. Independent review is
-  unavailable; this is not a no-findings review, and the review gate remains unmet.
+- Review findings: PacketLens Reviewer inspected
+  `tests/test_pcap_and_parsers.py`, `packetlens/pcap.py`, `packetlens/cli.py`,
+  `packetlens/__main__.py`, and link-type definitions in `packetlens/parsers.py`;
+  reported no actionable findings and did not run tests. Reviewer could not verify
+  the commit object or exact commit diff. The coordinator independently inspected
+  commit `a36dd172` and confirmed it contains only the described test change.
 - Remaining risks or unverified assumptions: Coverage uses link type 999 and does not
-  alter or validate parser behavior. At inspection, commit `a36dd172` containing only
-  the test-file change was already present at HEAD and the cached
-  `origin/roadmap/m2-pcap-boundaries` ref; its live remote state could not be verified
-  because `git ls-remote` could not authenticate. This commit appeared before the
-  required review gate was satisfied. Windows 11 behavior and remaining M0 decisions
-  remain unverified/TBD; this does not complete M2.
+  alter or validate parser behavior. The test commit was already present at HEAD and
+  the cached `origin/roadmap/m2-pcap-boundaries` ref; live remote state has not been
+  verified because `git ls-remote` could not authenticate. Windows 11 behavior and
+  remaining M0 decisions remain unverified/TBD; this does not complete M2.
 - Next task: Continue M2 with one further focused correctness-boundary task only after
   the review and publication state of this change is resolved; do not infer M2
   completion from this entry.
