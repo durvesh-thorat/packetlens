@@ -279,6 +279,42 @@ test run recorded in this log.
 - Next task: Continue M2 with one focused validation of malformed record metadata or
   unsupported link types, without treating this task as full pcap format validation.
 
+#### 2026-11-11 — Reject captured lengths greater than original lengths
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-pcap records whose captured length exceeds
+  their original packet length. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` with both lengths in its message
+  before reading or yielding the record payload when captured length exceeds original
+  length. Equal lengths remain accepted; a smaller captured length remains valid for a
+  snap-truncated capture. Existing physical-truncation errors and complete-empty-capture
+  behavior were retained.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    17 tests run, all passed, 0 skipped.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+  - `python -m unittest discover -s tests -v` — exit 0; 74 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - One-off CLI integration check using a temporary classic-PCAP record with
+    `incl_len=5`, `orig_len=4` — wrapper exit 0; CLI exit 1, empty stdout, stderr:
+    `error: pcap captured length 5 exceeds original length 4`. The check was not added
+    as a persistent test.
+  - JavaScript syntax check — not run; unrelated to this change. No unavailable tools
+    were needed for the checks above.
+- Evidence/artifact: Regression tests in `tests/test_pcap_and_parsers.py` cover the
+  invalid larger captured length and valid smaller captured length; existing tests
+  cover equal lengths, physical truncation, and a valid empty capture.
+- Remaining risks or unverified assumptions: This check does not validate snaplen,
+  timestamp fractions, or other record metadata. CLI failure behavior was checked once;
+  partial-analysis semantics remain untested. M0 acceptance targets, traffic capacity,
+  retention, and backup/recovery remain TBD and maintainer-owned. Offline PCAP/replay on
+  Windows 11 remains the first validation target; Windows 11 is unverified, and Linux
+  live capture remains out of scope.
+- Next task: Have the coordinator select one further focused M2 boundary check (for
+  example, unsupported link-type behavior); do not infer M2 completion from this entry.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name

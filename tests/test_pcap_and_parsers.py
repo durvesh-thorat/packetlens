@@ -75,6 +75,25 @@ class PcapTests(unittest.TestCase):
             with self.assertRaisesRegex(PcapError, "truncated pcap packet data"):
                 list(r)
 
+    def test_captured_length_exceeding_original_length_raises(self):
+        path = self._temporary_capture_path()
+        with open(path, "wb") as f:
+            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+            f.write(struct.pack("<IIII", 1, 0, 5, 4))
+        with PcapReader(path) as r:
+            with self.assertRaisesRegex(
+                PcapError, "captured length 5 exceeds original length 4"
+            ):
+                list(r)
+
+    def test_captured_length_smaller_than_original_length_is_valid(self):
+        path = self._temporary_capture_path()
+        with open(path, "wb") as f:
+            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+            f.write(struct.pack("<IIII", 1, 0, 3, 6) + b"xyz")
+        with PcapReader(path) as r:
+            self.assertEqual(list(r), [(1.0, b"xyz")])
+
 
 class ParserTests(unittest.TestCase):
     def test_tcp_syn(self):
