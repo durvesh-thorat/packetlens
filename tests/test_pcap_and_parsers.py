@@ -2,6 +2,8 @@ import os
 import struct
 import tempfile
 import unittest
+from io import BytesIO
+from unittest.mock import patch
 
 from packetlens import synth
 from packetlens.parsers import ACK, SYN, parse_dns, parse_packet
@@ -78,7 +80,7 @@ class PcapTests(unittest.TestCase):
     def test_captured_length_exceeding_original_length_raises(self):
         path = self._temporary_capture_path()
         with open(path, "wb") as f:
-            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 4, 1))
             f.write(struct.pack("<IIII", 1, 0, 5, 4))
         with PcapReader(path) as r:
             with self.assertRaisesRegex(
@@ -86,13 +88,55 @@ class PcapTests(unittest.TestCase):
             ):
                 list(r)
 
+    def test_captured_length_equal_to_snaplen_is_valid(self):
+        path = self._temporary_capture_path()
+        with open(path, "wb") as f:
+            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 3, 1))
+            f.write(struct.pack("<IIII", 1, 0, 3, 3) + b"xyz")
+        with PcapReader(path) as r:
+            self.assertEqual(list(r), [(1.0, b"xyz")])
+
+    def test_captured_length_exceeding_snaplen_raises_before_payload_read(self):
+        class TrackingStream(BytesIO):
+            def __init__(self, data):
+                super().__init__(data)
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                return super().read(size)
+
+        stream = TrackingStream(
+            struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 4, 1)
+            + struct.pack("<IIII", 1, 0, 5, 5)
+        )
+        with patch("builtins.open", return_value=stream):
+            reader = PcapReader("unused.pcap")
+        self.addCleanup(reader.close)
+        with self.assertRaisesRegex(PcapError, "captured length 5 exceeds snaplen 4"):
+            list(reader)
+        self.assertEqual(stream.read_sizes, [24, 16])
+
     def test_captured_length_smaller_than_original_length_is_valid(self):
         path = self._temporary_capture_path()
         with open(path, "wb") as f:
-            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
-            f.write(struct.pack("<IIII", 1, 0, 3, 6) + b"xyz")
+            f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 3, 1))
+            f.write(struct.pack("<IIII", 1, 0, 3, 5) + b"xyz")
         with PcapReader(path) as r:
             self.assertEqual(list(r), [(1.0, b"xyz")])
+
+    def test_writer_rejects_packet_larger_than_snaplen(self):
+        path = self._temporary_capture_path()
+        with PcapWriter(path, snaplen=3) as writer:
+            with self.assertRaisesRegex(PcapError, "packet length 4 exceeds snaplen 3"):
+                writer.write(1.0, b"abcd")
+
+    def test_zero_snaplen_retains_existing_unbounded_behavior(self):
+        path = self._temporary_capture_path()
+        with PcapWriter(path, snaplen=0) as writer:
+            writer.write(1.0, b"longer than zero")
+        with PcapReader(path) as reader:
+            self.assertEqual(list(reader), [(1.0, b"longer than zero")])
 
 
 class ParserTests(unittest.TestCase):
