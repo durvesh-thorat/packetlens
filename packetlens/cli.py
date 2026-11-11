@@ -1,11 +1,14 @@
 import argparse
 import json
+import sqlite3
 import sys
 import time
 
 from .engine import Engine
 from .parsers import SUPPORTED_LINKTYPES
 from .pcap import PcapError, PcapReader, PcapWriter
+from .policy import effective_policy, load_policy
+from .store import Store
 
 
 def _check_linktype(linktype):
@@ -14,26 +17,39 @@ def _check_linktype(linktype):
 
 
 def cmd_analyze(a):
-    eng, alerts = Engine(), []
-    t0 = time.perf_counter()
-    with PcapReader(a.file) as r:
-        _check_linktype(r.linktype)
-        for ts, data in r:
-            alerts += eng.process(ts, data, r.linktype)
-    alerts += eng.finish()
-    dt = time.perf_counter() - t0
-    s = eng.snapshot()
-    if a.json:
-        print(json.dumps({"packets": s["total_packets"], "malformed": s["malformed"],
-                          "protocols": s["protocols"], "alerts": [x.to_dict() for x in alerts]}, indent=2))
-        return
-    print(f"{s['total_packets']:,} packets, {s['total_bytes']:,} bytes, {s['malformed']} malformed "
-          f"({s['total_packets'] / dt:,.0f} packets/s)")
-    print("Protocols:", ", ".join(f"{k} {v}" for k, v in sorted(s['protocols'].items(), key=lambda x: -x[1])))
-    print("Top talkers:", ", ".join(f"{ip} ({b:,} B)" for ip, b in s["talkers"][:5]))
-    print(f"\n{len(alerts)} alert(s)")
-    for x in alerts:
-        print(f"  [{x.severity:6}] t={x.ts:.1f}  {x.kind:10} {x.src:20} {x.detail}")
+    store = Store(a.db) if a.db else None
+    try:
+        policy = load_policy(a.policy) if a.policy else None
+        eng, alerts = Engine(policy=policy, store=store), []
+        t0 = time.perf_counter()
+        with PcapReader(a.file) as r:
+            _check_linktype(r.linktype)
+            first_ts = last_ts = None
+            for ts, data in r:
+                first_ts = ts if first_ts is None else first_ts
+                last_ts = ts
+                alerts += eng.process(ts, data, r.linktype)
+        alerts += eng.finish()
+        dt = time.perf_counter() - t0
+        s = eng.snapshot()
+        if store is not None:
+            store.record_capture(a.file, s["total_packets"], s["total_bytes"], s["malformed"],
+                                first_ts, last_ts, store.counters()["dropped"])
+            store.flush()
+        if a.json:
+            print(json.dumps({"packets": s["total_packets"], "malformed": s["malformed"],
+                              "protocols": s["protocols"], "alerts": [x.to_dict() for x in alerts]}, indent=2))
+            return
+        print(f"{s['total_packets']:,} packets, {s['total_bytes']:,} bytes, {s['malformed']} malformed "
+              f"({s['total_packets'] / dt:,.0f} packets/s)")
+        print("Protocols:", ", ".join(f"{k} {v}" for k, v in sorted(s['protocols'].items(), key=lambda x: -x[1])))
+        print("Top talkers:", ", ".join(f"{ip} ({b:,} B)" for ip, b in s["talkers"][:5]))
+        print(f"\n{len(alerts)} alert(s)")
+        for x in alerts:
+            print(f"  [{x.severity:6}] t={x.ts:.1f}  {x.kind:16} {x.src:20} {x.detail}")
+    finally:
+        if store is not None:
+            store.close()
 
 
 def cmd_generate(a):
@@ -49,8 +65,10 @@ def cmd_generate(a):
 
 
 def cmd_serve(a):
-    from .dashboard import replay, serve
-    eng = Engine()
+    from .dashboard import replay_packets, serve
+    policy = effective_policy(a.policy)
+    store = Store(a.db)
+    eng = Engine(policy=policy, store=store)
     if a.pcap:
         with PcapReader(a.pcap) as probe:
             _check_linktype(probe.linktype)
@@ -58,20 +76,32 @@ def cmd_serve(a):
 
         def packets():
             with PcapReader(a.pcap) as r:
-                yield from r
-        source = replay(eng, packets, linktype, a.speed, a.loop)
+                for ts, data in r:
+                    yield ts, data, linktype
+        source = replay_packets(packets, a.speed, a.loop)
+        source_name = f"pcap:{a.pcap}"
     else:
         from .capture import live_packets
 
         def source():
             for ts, data in live_packets(a.iface):
-                eng.process(ts, data, 1)
-    serve(eng, source, a.host, a.port)
+                yield ts, data, 1
+        source_name = f"interface:{a.iface or 'default'}"
+    serve(eng, source, a.host, a.port, store=store, source_name=source_name,
+          policy=policy, results_dir=a.results_dir)
+
+
+def cmd_report(a):
+    from .report import write_report
+    write_report(a.db, a.out, a.title, a.policy)
+    print(f"wrote report to {a.out}")
 
 
 def cmd_live(a):
     from .capture import live_packets
-    eng = Engine()
+    policy = load_policy(a.policy) if a.policy else None
+    store = Store(a.db) if a.db else None
+    eng = Engine(policy=policy, store=store)
     print("Capturing... Ctrl-C to stop. Only capture networks you own or are authorised to monitor.")
     try:
         for ts, data in live_packets(a.iface):
@@ -80,6 +110,10 @@ def cmd_live(a):
     except KeyboardInterrupt:
         s = eng.snapshot()
         print(f"\n{s['total_packets']:,} packets seen")
+    finally:
+        eng.finish()
+        if store is not None:
+            store.close()
 
 
 def cmd_evaluate(a):
@@ -110,6 +144,35 @@ def cmd_bench(a):
     print(json.dumps(benchmark(a.duration), indent=2))
 
 
+def cmd_policy_validate(a):
+    policy = load_policy(a.path)
+    print(f"valid: {policy.name}")
+
+
+def cmd_policy_show(a):
+    policy = effective_policy(a.path)
+    print(json.dumps(policy.to_dict(), indent=2))
+
+
+def cmd_incidents(a):
+    store = Store(a.db)
+    try:
+        if a.action == "list":
+            result = store.list_incidents(status=a.status, severity=a.severity, kind=a.kind, q=a.q,
+                                          limit=a.limit, offset=a.offset)
+        elif a.action == "show":
+            result = store.get_incident(a.id)
+            if result is None:
+                raise ValueError(f"incident not found: {a.id}")
+        elif a.action == "ack":
+            result = store.set_incident_status(a.id, "acknowledged", a.note)
+        else:
+            result = store.set_incident_status(a.id, "closed", a.note)
+        print(json.dumps(result, indent=2))
+    finally:
+        store.close()
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="packetlens", description="Network traffic analyzer built from scratch")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -117,6 +180,8 @@ def main(argv=None):
     s = sub.add_parser("analyze", help="analyse a pcap file and print alerts")
     s.add_argument("file")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--policy")
+    s.add_argument("--db")
     s.set_defaults(fn=cmd_analyze)
 
     s = sub.add_parser("generate", help="write a synthetic labelled pcap file")
@@ -134,10 +199,22 @@ def main(argv=None):
     s.add_argument("--loop", action="store_true")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8080)
+    s.add_argument("--policy")
+    s.add_argument("--db", default="packetlens.db")
+    s.add_argument("--results-dir", default="results")
     s.set_defaults(fn=cmd_serve)
+
+    s = sub.add_parser("report", help="write a self-contained HTML report from a SQLite store")
+    s.add_argument("--db", required=True)
+    s.add_argument("--out", required=True)
+    s.add_argument("--title", default="PacketLens Technical Report")
+    s.add_argument("--policy", help="policy JSON to include (default: packaged policy)")
+    s.set_defaults(fn=cmd_report)
 
     s = sub.add_parser("live", help="capture from an interface and print alerts (Linux, root)")
     s.add_argument("--iface")
+    s.add_argument("--policy")
+    s.add_argument("--db")
     s.set_defaults(fn=cmd_live)
 
     s = sub.add_parser("evaluate", help="precision/recall on labelled synthetic traffic")
@@ -171,10 +248,38 @@ def main(argv=None):
     s.add_argument("--duration", type=int, default=600)
     s.set_defaults(fn=cmd_bench)
 
+    s = sub.add_parser("policy", help="validate or display detection policies")
+    policy_sub = s.add_subparsers(dest="policy_cmd", required=True)
+    v = policy_sub.add_parser("validate", help="validate a policy JSON file")
+    v.add_argument("path")
+    v.set_defaults(fn=cmd_policy_validate)
+    v = policy_sub.add_parser("show", help="show an explicit or packaged policy")
+    v.add_argument("path", nargs="?")
+    v.set_defaults(fn=cmd_policy_show)
+
+    s = sub.add_parser("incidents", help="list or update persisted incidents")
+    incident_sub = s.add_subparsers(dest="action", required=True)
+    v = incident_sub.add_parser("list")
+    v.add_argument("--db", required=True)
+    v.add_argument("--status")
+    v.add_argument("--severity")
+    v.add_argument("--kind")
+    v.add_argument("--q")
+    v.add_argument("--limit", type=int, default=50)
+    v.add_argument("--offset", type=int, default=0)
+    v.set_defaults(fn=cmd_incidents)
+    for action in ("show", "ack", "close"):
+        v = incident_sub.add_parser(action)
+        v.add_argument("--db", required=True)
+        v.add_argument("id")
+        if action in {"ack", "close"}:
+            v.add_argument("--note", default="")
+        v.set_defaults(fn=cmd_incidents)
+
     a = p.parse_args(argv)
     try:
         a.fn(a)
-    except (PcapError, ValueError, RuntimeError, FileNotFoundError, PermissionError) as e:
+    except (PcapError, ValueError, RuntimeError, FileNotFoundError, PermissionError, sqlite3.Error) as e:
         sys.exit(f"error: {e}")
 
 

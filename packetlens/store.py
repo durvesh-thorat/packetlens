@@ -1,0 +1,544 @@
+"""SQLite-backed incident, host, and traffic-stat storage.
+
+Writes are handled by one daemon thread and a bounded queue (10,000 jobs); if the
+queue is full, submissions are dropped and counted. Read results are capped to keep
+large stores from causing unbounded response memory.
+"""
+import json
+import queue
+import sqlite3
+import threading
+import time
+import uuid
+from collections import OrderedDict
+
+
+QUEUE_CAPACITY = 10000
+MAX_PAGE_SIZE = 500
+MAX_INCIDENT_ALERTS = 1000
+MAX_MINUTE_STATS = 10000
+MAX_HOST_PEERS = 2000
+MAX_ACTIVE_GROUPS = 50000
+SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def migrate(connection):
+    """Create or upgrade the SQLite schema."""
+    connection.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
+    row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None:
+        connection.execute("INSERT INTO schema_version(version) VALUES (0)")
+        version = 0
+    else:
+        version = row[0]
+    if version < 1:
+        connection.executescript("""
+            CREATE TABLE IF NOT EXISTS incidents (
+                id TEXT PRIMARY KEY, kind TEXT NOT NULL, src TEXT NOT NULL,
+                status TEXT NOT NULL, severity TEXT NOT NULL, count INTEGER NOT NULL,
+                first_ts REAL NOT NULL, last_ts REAL NOT NULL, detail TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id TEXT,
+                ts REAL NOT NULL, kind TEXT NOT NULL, severity TEXT NOT NULL,
+                src TEXT NOT NULL, dst TEXT NOT NULL, detail TEXT NOT NULL,
+                policy_id TEXT NOT NULL, data_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS alerts_incident_idx ON alerts(incident_id, ts);
+            CREATE INDEX IF NOT EXISTS alerts_kind_src_idx ON alerts(kind, src, ts);
+            CREATE TABLE IF NOT EXISTS hosts (
+                ip TEXT PRIMARY KEY, first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+                packets_in INTEGER NOT NULL, packets_out INTEGER NOT NULL,
+                bytes_in INTEGER NOT NULL, bytes_out INTEGER NOT NULL,
+                peers_json TEXT NOT NULL, peers_truncated INTEGER NOT NULL,
+                top_ports_json TEXT NOT NULL, protocols_json TEXT NOT NULL,
+                alert_count INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS minute_stats (
+                t REAL PRIMARY KEY, packets INTEGER NOT NULL, bytes INTEGER NOT NULL,
+                syn INTEGER NOT NULL, dns INTEGER NOT NULL, sources INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id TEXT NOT NULL,
+                ts REAL NOT NULL, action TEXT NOT NULL, note TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS audit_incident_idx ON audit_log(incident_id, id);
+        """)
+        connection.execute("UPDATE schema_version SET version = 1")
+        version = 1
+    if version < 2:
+        connection.executescript("""
+            CREATE TABLE IF NOT EXISTS capture_runs (
+                id TEXT PRIMARY KEY, source TEXT NOT NULL, packets INTEGER NOT NULL,
+                bytes INTEGER NOT NULL, malformed INTEGER NOT NULL,
+                first_ts REAL, last_ts REAL
+            );
+            CREATE INDEX IF NOT EXISTS capture_runs_period_idx ON capture_runs(first_ts,last_ts);
+        """)
+        connection.execute("UPDATE schema_version SET version = 2")
+        version = 2
+    if version < 3:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(capture_runs)")}
+        if "dropped_writes" not in columns:
+            connection.execute("ALTER TABLE capture_runs ADD COLUMN dropped_writes INTEGER NOT NULL DEFAULT 0")
+        connection.execute("UPDATE schema_version SET version = 3")
+    connection.commit()
+
+
+class Store:
+    """Persistent SQLite store with a single bounded asynchronous writer."""
+
+    def __init__(self, path):
+        self.path = str(path)
+        self.incident_gap_s = 300
+        self._queue = queue.Queue(maxsize=QUEUE_CAPACITY)
+        self._counter_lock = threading.Lock()
+        self._incident_lock = threading.Lock()
+        self._dropped = 0
+        self._written = 0
+        self._writer_error = None
+        setup = sqlite3.connect(self.path, timeout=30)
+        try:
+            setup.execute("PRAGMA journal_mode=WAL")
+            setup.execute("PRAGMA synchronous=NORMAL")
+            migrate(setup)
+            self._active = OrderedDict()
+            for row in setup.execute(
+                    "SELECT id,kind,src,status,last_ts,count,first_ts,severity "
+                    "FROM incidents WHERE status != 'closed' ORDER BY last_ts"):
+                key = (row[1], row[2])
+                previous = self._active.get(key)
+                if previous is None or row[4] > previous["last_ts"]:
+                    self._active[key] = {
+                        "id": row[0], "status": row[3], "last_ts": row[4],
+                        "count": row[5], "first_ts": row[6], "severity": row[7],
+                    }
+        finally:
+            setup.close()
+        self._thread = threading.Thread(target=self._writer, name="packetlens-sqlite-writer", daemon=True)
+        self._thread.start()
+
+    def _writer(self):
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        while True:
+            job = self._queue.get()
+            if job is None:
+                self._queue.task_done()
+                break
+            function, future = job
+            try:
+                result = function(connection)
+                connection.commit()
+                with self._counter_lock:
+                    self._written += 1
+                if future is not None:
+                    future["result"] = result
+            except Exception as exc:
+                connection.rollback()
+                if future is not None:
+                    future["error"] = exc
+                else:
+                    self._writer_error = exc
+            finally:
+                if future is not None:
+                    future["event"].set()
+                self._queue.task_done()
+        connection.close()
+
+    def _raise_writer_error(self):
+        if self._writer_error is not None:
+            raise RuntimeError(f"SQLite writer failed: {self._writer_error}") from self._writer_error
+
+    def _enqueue(self, function, wait=False):
+        self._raise_writer_error()
+        future = {"event": threading.Event(), "result": None, "error": None} if wait else None
+        try:
+            if wait:
+                self._queue.put((function, future))
+            else:
+                self._queue.put_nowait((function, future))
+        except queue.Full:
+            with self._counter_lock:
+                self._dropped += 1
+            return None
+        if future is not None:
+            future["event"].wait()
+            if future["error"] is not None:
+                raise RuntimeError(f"SQLite writer failed: {future['error']}") from future["error"]
+            return future["result"]
+        return True
+
+    def add_alert(self, alert):
+        """Store an alert and return its grouped incident id, or None for log-only alerts."""
+        action = getattr(alert, "_action", "alert")
+        values = alert.to_dict() if hasattr(alert, "to_dict") else dict(alert)
+        data = values.get("data") or {}
+        data_json = json.dumps(data, separators=(",", ":"), allow_nan=False)
+        timestamp = float(values["ts"])
+        kind, src = str(values["kind"]), str(values["src"])
+        severity = str(values["severity"])
+        log_only = action == "log"
+        incident_id = None
+        if not log_only:
+            key = (kind, src)
+            with self._incident_lock:
+                while self._active:
+                    oldest_key, oldest = next(iter(self._active.items()))
+                    if oldest["status"] == "closed" or timestamp - oldest["last_ts"] > self.incident_gap_s:
+                        self._active.pop(oldest_key)
+                    else:
+                        break
+                current = self._active.get(key)
+                if current is None or current["status"] == "closed" or abs(
+                        timestamp - current["last_ts"]) > self.incident_gap_s:
+                    self._active.pop(key, None)
+                    if len(self._active) >= MAX_ACTIVE_GROUPS:
+                        self._active.popitem(last=False)
+                    incident_id = uuid.uuid4().hex
+                    current = {"id": incident_id, "status": "open", "last_ts": timestamp,
+                               "first_ts": timestamp, "count": 0, "severity": severity}
+                    self._active[key] = current
+                else:
+                    incident_id = current["id"]
+                    current["first_ts"] = min(current.get("first_ts", timestamp), timestamp)
+                    current["last_ts"] = max(current["last_ts"], timestamp)
+                    current["count"] = current.get("count", 0) + 1
+                    if SEVERITY_RANK.get(severity, 0) > SEVERITY_RANK.get(current["severity"], 0):
+                        current["severity"] = severity
+                if current["count"] == 0:
+                    current["count"] = 1
+                if SEVERITY_RANK.get(severity, 0) > SEVERITY_RANK.get(current["severity"], 0):
+                    current["severity"] = severity
+                self._active.move_to_end(key)
+                snapshot = dict(current)
+
+        row = {
+            "incident_id": incident_id, "ts": timestamp, "kind": kind, "severity": severity,
+            "src": src, "dst": str(values.get("dst", "")), "detail": str(values.get("detail", "")),
+            "policy_id": str(values.get("policy_id", "")), "data_json": data_json,
+        }
+
+        def write(connection):
+            if incident_id is not None:
+                connection.execute("""
+                    INSERT INTO incidents(id,kind,src,status,severity,count,first_ts,last_ts,detail)
+                    VALUES(?,?,?,'open',?,?,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        severity=excluded.severity, count=excluded.count,
+                        first_ts=excluded.first_ts, last_ts=excluded.last_ts, detail=excluded.detail
+                """, (incident_id, kind, src, snapshot["severity"], snapshot["count"],
+                      snapshot["first_ts"], snapshot["last_ts"], row["detail"]))
+            connection.execute("""
+                INSERT INTO alerts(incident_id,ts,kind,severity,src,dst,detail,policy_id,data_json)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """, (row["incident_id"], row["ts"], row["kind"], row["severity"], row["src"],
+                  row["dst"], row["detail"], row["policy_id"], row["data_json"]))
+        accepted = self._enqueue(write)
+        if accepted is None and incident_id is not None:
+            return incident_id
+        return incident_id
+
+    def upsert_hosts(self, list_of_dicts):
+        """Queue profile snapshots; host records and peer arrays are bounded."""
+        rows = []
+        for value in list_of_dicts:
+            if not isinstance(value, dict) or not isinstance(value.get("ip"), str):
+                continue
+            peers = value.get("peers", [])
+            if not isinstance(peers, list):
+                peers = []
+            peers = list(dict.fromkeys(str(peer) for peer in peers))[:MAX_HOST_PEERS]
+            rows.append({
+                "ip": value["ip"], "first_seen": float(value.get("first_seen", 0)),
+                "last_seen": float(value.get("last_seen", 0)),
+                "packets_in": max(0, int(value.get("packets_in", 0))),
+                "packets_out": max(0, int(value.get("packets_out", 0))),
+                "bytes_in": max(0, int(value.get("bytes_in", 0))),
+                "bytes_out": max(0, int(value.get("bytes_out", 0))),
+                "peers": peers, "peers_truncated": bool(value.get("peers_truncated", False)),
+                "top_ports": value.get("top_ports", [])[:10],
+                "protocols": value.get("protocols", {}),
+                "alert_count": max(0, int(value.get("alert_count", 0))),
+            })
+
+        def write(connection):
+            for row in rows:
+                old = connection.execute("SELECT peers_json,top_ports_json,protocols_json FROM hosts "
+                                         "WHERE ip=?", (row["ip"],)).fetchone()
+                peers = row["peers"]
+                ports = row["top_ports"]
+                protocols = row["protocols"]
+                if old:
+                    peers = list(dict.fromkeys(json.loads(old[0]) + peers))[:MAX_HOST_PEERS]
+                    old_ports, old_protocols = json.loads(old[1]), json.loads(old[2])
+                    port_counts = {str(port): count for port, count in old_ports}
+                    for port, count in ports:
+                        port_counts[str(port)] = max(int(count), int(port_counts.get(str(port), 0)))
+                    ports = [[int(port), count] for port, count in
+                             sorted(port_counts.items(), key=lambda item: int(item[1]), reverse=True)[:10]]
+                    merged_protocols = dict(old_protocols)
+                    for protocol, count in protocols.items():
+                        merged_protocols[protocol] = max(int(count), int(merged_protocols.get(protocol, 0)))
+                    protocols = merged_protocols
+                connection.execute("""
+                    INSERT INTO hosts(ip,first_seen,last_seen,packets_in,packets_out,bytes_in,bytes_out,
+                        peers_json,peers_truncated,top_ports_json,protocols_json,alert_count)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(ip) DO UPDATE SET
+                        first_seen=min(hosts.first_seen,excluded.first_seen),
+                        last_seen=max(hosts.last_seen,excluded.last_seen),
+                        packets_in=max(hosts.packets_in,excluded.packets_in),
+                        packets_out=max(hosts.packets_out,excluded.packets_out),
+                        bytes_in=max(hosts.bytes_in,excluded.bytes_in),
+                        bytes_out=max(hosts.bytes_out,excluded.bytes_out),
+                        peers_json=excluded.peers_json,
+                        peers_truncated=max(hosts.peers_truncated,excluded.peers_truncated),
+                        top_ports_json=excluded.top_ports_json,
+                        protocols_json=excluded.protocols_json,
+                        alert_count=max(hosts.alert_count,excluded.alert_count)
+                """, (row["ip"], row["first_seen"], row["last_seen"], row["packets_in"],
+                      row["packets_out"], row["bytes_in"], row["bytes_out"], json.dumps(peers),
+                      int(row["peers_truncated"]), json.dumps(ports), json.dumps(protocols),
+                      row["alert_count"]))
+        if rows:
+            self._enqueue(write)
+
+    def add_minute_stat(self, bin_dict):
+        """Queue one bounded-size traffic bin, replacing a duplicate timestamp."""
+        row = (float(bin_dict["t"]), int(bin_dict["packets"]), int(bin_dict["bytes"]),
+               int(bin_dict["syn"]), int(bin_dict["dns"]), int(bin_dict["sources"]))
+        self._enqueue(lambda connection: connection.execute(
+            "INSERT INTO minute_stats(t,packets,bytes,syn,dns,sources) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(t) DO UPDATE SET packets=excluded.packets,bytes=excluded.bytes,"
+            "syn=excluded.syn,dns=excluded.dns,sources=excluded.sources", row))
+
+    def record_capture(self, source, packets, byte_count, malformed, first_ts=None, last_ts=None,
+                       dropped_writes=0):
+        """Persist additive per-run traffic totals for later reports."""
+        values = (str(source), int(packets), int(byte_count), int(malformed),
+                  None if first_ts is None else float(first_ts),
+                  None if last_ts is None else float(last_ts), int(dropped_writes))
+        if min(values[1:4]) < 0 or values[6] < 0:
+            raise ValueError("capture counts must not be negative")
+        run_id = uuid.uuid4().hex
+        self._enqueue(lambda connection: connection.execute(
+            "INSERT INTO capture_runs(id,source,packets,bytes,malformed,first_ts,last_ts,dropped_writes) "
+            "VALUES(?,?,?,?,?,?,?,?)", (run_id,) + values), wait=True)
+
+    def capture_summary(self):
+        """Return persisted packet totals; legacy stores fall back to their traffic bins."""
+        self.flush()
+        connection = self._connect_read()
+        try:
+            summary = connection.execute(
+                "SELECT count(*) AS runs,coalesce(sum(packets),0) AS packets,"
+                "coalesce(sum(bytes),0) AS bytes,coalesce(sum(malformed),0) AS malformed,"
+                "min(first_ts) AS first_ts,max(last_ts) AS last_ts,"
+                "coalesce(sum(dropped_writes),0) AS dropped_writes FROM capture_runs").fetchone()
+            result = dict(summary)
+            if result["runs"] == 0:
+                bins = connection.execute(
+                    "SELECT coalesce(sum(packets),0) AS packets,coalesce(sum(bytes),0) AS bytes,"
+                    "min(t) AS first_ts,max(t) AS last_ts FROM minute_stats").fetchone()
+                result.update(dict(bins))
+                result["malformed"] = None
+                result["dropped_writes"] = None
+            return result
+        finally:
+            connection.close()
+
+    def flush(self):
+        """Wait for all accepted writes and surface any writer failure."""
+        result = self._enqueue(lambda connection: None, wait=True)
+        self._raise_writer_error()
+        return result
+
+    def close(self):
+        """Drain accepted writes and stop the sole writer thread."""
+        if not self._thread.is_alive():
+            return
+        flush_error = None
+        try:
+            self.flush()
+        except RuntimeError as exc:
+            flush_error = exc
+        self._queue.put(None)
+        self._thread.join()
+        if flush_error is not None:
+            raise flush_error
+        self._raise_writer_error()
+
+    def counters(self):
+        """Return the queue's current size and cumulative drop/write counts."""
+        with self._counter_lock:
+            return {"dropped": self._dropped, "queued": self._queue.qsize(), "written": self._written}
+
+    def _connect_read(self):
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    @staticmethod
+    def _escape_like(value):
+        return str(value).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    @staticmethod
+    def _incident_dict(row):
+        return dict(row)
+
+    def list_incidents(self, status=None, severity=None, kind=None, q=None, limit=50, offset=0):
+        """List at most 500 matching incidents; q treats LIKE wildcards literally."""
+        self.flush()
+        clauses, params = [], []
+        for column, value in (("status", status), ("severity", severity), ("kind", kind)):
+            if value is not None:
+                clauses.append(f"{column}=?")
+                params.append(value)
+        if q:
+            term = f"%{self._escape_like(q)}%"
+            clauses.append("(kind LIKE ? ESCAPE '\\' OR src LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\')")
+            params.extend((term, term, term))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        limit = min(MAX_PAGE_SIZE, max(0, int(limit)))
+        offset = max(0, int(offset))
+        connection = self._connect_read()
+        try:
+            total = connection.execute("SELECT count(*) FROM incidents" + where, params).fetchone()[0]
+            rows = connection.execute("SELECT * FROM incidents" + where +
+                                      " ORDER BY last_ts DESC,id LIMIT ? OFFSET ?",
+                                      params + [limit, offset]).fetchall()
+            return {"total": total, "items": [self._incident_dict(row) for row in rows]}
+        finally:
+            connection.close()
+
+    def get_incident(self, id):
+        """Return one incident and up to 1,000 chronological alerts."""
+        self.flush()
+        connection = self._connect_read()
+        try:
+            row = connection.execute("SELECT * FROM incidents WHERE id=?", (str(id),)).fetchone()
+            if row is None:
+                return None
+            result = self._incident_dict(row)
+            alerts = connection.execute(
+                "SELECT id,incident_id,ts,kind,severity,src,dst,detail,policy_id,data_json "
+                "FROM alerts WHERE incident_id=? ORDER BY ts,id LIMIT ?",
+                (str(id), MAX_INCIDENT_ALERTS + 1)).fetchall()
+            result["alerts_truncated"] = len(alerts) > MAX_INCIDENT_ALERTS
+            result["alerts"] = []
+            for alert in alerts[:MAX_INCIDENT_ALERTS]:
+                item = dict(alert)
+                item["data"] = json.loads(item.pop("data_json"))
+                result["alerts"].append(item)
+            return result
+        finally:
+            connection.close()
+
+    def set_incident_status(self, id, status, note=""):
+        """Apply only open->acknowledged, acknowledged->closed, or open->closed."""
+        if status not in {"acknowledged", "closed"}:
+            raise ValueError(f"invalid target status: {status!r}")
+        self.flush()
+        connection = self._connect_read()
+        try:
+            row = connection.execute("SELECT status FROM incidents WHERE id=?", (str(id),)).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise ValueError(f"incident not found: {id}")
+        allowed = {"open": {"acknowledged", "closed"}, "acknowledged": {"closed"}}
+        if status not in allowed.get(row["status"], set()):
+            raise ValueError(f"invalid incident status transition: {row['status']} -> {status}")
+        update_time = time.time()
+        note = str(note)
+
+        def write(writer):
+            writer.execute("UPDATE incidents SET status=? WHERE id=?", (status, str(id)))
+            writer.execute("INSERT INTO audit_log(incident_id,ts,action,note) VALUES(?,?,?,?)",
+                           (str(id), update_time, status, note))
+            return dict(writer.execute("SELECT * FROM incidents WHERE id=?", (str(id),)).fetchone())
+        result = self._enqueue(write, wait=True)
+        with self._incident_lock:
+            for key, current in list(self._active.items()):
+                if current["id"] == str(id):
+                    if status == "closed":
+                        del self._active[key]
+                    else:
+                        current["status"] = status
+        return result
+
+    def list_hosts(self, q=None, sort="bytes", limit=50, offset=0):
+        """List at most 500 profiles, ordered by bytes, recency, alerts, or IP."""
+        self.flush()
+        sort_columns = {"bytes": "(bytes_in+bytes_out)", "last_seen": "last_seen",
+                        "alerts": "alert_count", "ip": "ip"}
+        if sort not in sort_columns:
+            raise ValueError(f"unsupported host sort: {sort}")
+        clauses, params = "", []
+        if q:
+            clauses = " WHERE ip LIKE ? ESCAPE '\\'"
+            params.append(f"%{self._escape_like(q)}%")
+        limit, offset = min(MAX_PAGE_SIZE, max(0, int(limit))), max(0, int(offset))
+        connection = self._connect_read()
+        try:
+            total = connection.execute("SELECT count(*) FROM hosts" + clauses, params).fetchone()[0]
+            rows = connection.execute("SELECT * FROM hosts" + clauses + f" ORDER BY {sort_columns[sort]} DESC "
+                                      "LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+            items = []
+            for row in rows:
+                item = dict(row)
+                item["peers"] = json.loads(item.pop("peers_json"))
+                item["top_ports"] = json.loads(item.pop("top_ports_json"))
+                item["protocols"] = json.loads(item.pop("protocols_json"))
+                items.append(item)
+            return {"total": total, "items": items}
+        finally:
+            connection.close()
+
+    def get_host(self, ip):
+        """Return one profile and up to 1,000 related incident identifiers."""
+        self.flush()
+        connection = self._connect_read()
+        try:
+            row = connection.execute("SELECT * FROM hosts WHERE ip=?", (str(ip),)).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["peers"] = json.loads(result.pop("peers_json"))
+            result["top_ports"] = json.loads(result.pop("top_ports_json"))
+            result["protocols"] = json.loads(result.pop("protocols_json"))
+            result["related_incident_ids"] = [r[0] for r in connection.execute(
+                "SELECT DISTINCT incident_id FROM alerts WHERE incident_id IS NOT NULL AND "
+                "(src=? OR dst=?) ORDER BY incident_id LIMIT ?", (str(ip), str(ip), MAX_INCIDENT_ALERTS))]
+            return result
+        finally:
+            connection.close()
+
+    def minute_stats(self, t0, t1):
+        """Return at most 10,000 bins in the inclusive packet-time range."""
+        self.flush()
+        connection = self._connect_read()
+        try:
+            rows = connection.execute(
+                "SELECT t,packets,bytes,syn,dns,sources FROM minute_stats WHERE t>=? AND t<=? "
+                "ORDER BY t LIMIT ?", (float(t0), float(t1), MAX_MINUTE_STATS)).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            connection.close()
+
+    def summary(self):
+        """Return totals and open-incident counts grouped by severity."""
+        self.flush()
+        connection = self._connect_read()
+        try:
+            groups = connection.execute(
+                "SELECT severity,count(*) AS count FROM incidents WHERE status='open' GROUP BY severity").fetchall()
+            total, first, last = connection.execute(
+                "SELECT count(*),min(ts),max(ts) FROM alerts").fetchone()
+            return {"open_by_severity": {row["severity"]: row["count"] for row in groups},
+                    "total_alerts": total, "first_ts": first, "last_ts": last}
+        finally:
+            connection.close()

@@ -4,8 +4,8 @@ Every detector has `observe(packet) -> list[Alert]`. State is bounded (deques wi
 periodic cleanup) so a flood of attack traffic cannot exhaust memory.
 """
 import math
-from collections import Counter, deque
-from dataclasses import asdict, dataclass
+from collections import Counter, OrderedDict, deque
+from dataclasses import asdict, dataclass, field
 
 from .parsers import fmt_mac
 
@@ -17,6 +17,9 @@ class Alert:
     severity: str
     src: str
     detail: str
+    dst: str = ""
+    policy_id: str = ""
+    data: dict = field(default_factory=dict)
 
     def to_dict(self):
         return asdict(self)
@@ -50,16 +53,19 @@ class PortScanDetector:
     """One source probing many different ports on one destination with bare SYNs.
 
     Two windows catch two styles: a fast scan (many ports in seconds) and a slow scan
-    (one port per second, trying to hide under a short window).
+    (one port per second, trying to hide under a short window). At most 20,000 source /
+    destination pairs are retained, with least-recently-used eviction.
     Known blind spot: a scan of ONE port across MANY hosts (horizontal scan) looks like
     a normal client talking to many servers, so it is intentionally not flagged here.
     """
 
     name = "port_scan"
 
+    MAX_SOURCES = 20000
+
     def __init__(self, windows=((10, 20), (300, 60)), cooldown=60.0):
         self.windows, self.cooldown = windows, cooldown
-        self._state = {}      # (src, dst) -> [SlidingDistinct per window, last_seen, last_alert]
+        self._state = OrderedDict()  # (src, dst) -> [SlidingDistinct per window, last_seen, last_alert]
         self._seen = 0
 
     def observe(self, p):
@@ -71,17 +77,23 @@ class PortScanDetector:
         key = (p.src, p.dst)
         st = self._state.get(key)
         if st is None:
+            if len(self._state) >= self.MAX_SOURCES:
+                self._state.popitem(last=False)
             st = self._state[key] = [[SlidingDistinct(w) for w, _ in self.windows], p.ts, -1e18]
+        else:
+            self._state.move_to_end(key)
         st[1] = p.ts
         hit = None
         for sd, (w, thr) in zip(st[0], self.windows):
             n = sd.add(p.ts, p.dport)
             if n >= thr and hit is None:
-                hit = (n, w)
+                hit = (n, w, thr)
         if hit and p.ts - st[2] >= self.cooldown:
             st[2] = p.ts
             return [Alert(p.ts, self.name, "high", p.src,
-                          f"{hit[0]} distinct ports probed on {p.dst} within {hit[1]}s")]
+                          f"{hit[0]} distinct ports probed on {p.dst} within {hit[1]}s",
+                          p.dst, data={"distinct_ports": hit[0], "window_s": hit[1],
+                                       "threshold": hit[2]})]
         return ()
 
     def _cleanup(self, now):
@@ -94,14 +106,17 @@ class SynFloodDetector:
     """Too many bare SYN packets reaching ONE service (address + port) within one second.
 
     Keying on the port is what separates a flood from a fast scan: a scan sends one SYN to
-    each of many ports, a flood piles thousands onto the same port.
+    each of many ports, a flood piles thousands onto the same port. At most 20,000 services
+    and 1,000 sources per active second are retained.
     """
 
     name = "syn_flood"
 
+    MAX_SERVICES = 20000
+
     def __init__(self, threshold=300, cooldown=30.0):
         self.threshold, self.cooldown = threshold, cooldown
-        self._b = {}          # (dst, dport) -> [second, count, set(sources)]
+        self._b = OrderedDict()  # (dst, dport) -> [second, count, set(sources)]
         self._last = {}       # (dst, dport) -> last alert ts
 
     def observe(self, p):
@@ -111,9 +126,11 @@ class SynFloodDetector:
         key = (p.dst, p.dport)
         b = self._b.get(key)
         if b is None or b[0] != sec:
-            if len(self._b) > 10000:
-                self._b = {k: v for k, v in self._b.items() if v[0] >= sec - 1}
+            if b is None and len(self._b) >= self.MAX_SERVICES:
+                evicted, _ = self._b.popitem(last=False)
+                self._last.pop(evicted, None)
             b = self._b[key] = [sec, 0, set()]
+        self._b.move_to_end(key)
         b[1] += 1
         if len(b[2]) < 1000:
             b[2].add(p.src)
@@ -121,7 +138,10 @@ class SynFloodDetector:
             self._last[key] = p.ts
             srcs = len(b[2])
             return [Alert(p.ts, self.name, "high", p.src if srcs == 1 else "many",
-                          f">= {self.threshold} SYN packets/s to {p.dst}:{p.dport} from {srcs} source(s)")]
+                          f">= {self.threshold} SYN packets/s to {p.dst}:{p.dport} from {srcs} source(s)",
+                          p.dst, data={"threshold": self.threshold, "observed": b[1],
+                                       "window_s": 1, "destination_port": p.dport,
+                                       "sources": srcs})]
         return ()
 
 
@@ -177,6 +197,7 @@ class DnsTunnelDetector:
 
     Known false-positive risk: CDNs and anti-virus cloud lookups also use random-looking
     names. Requiring several signals together (count AND length AND entropy) limits that.
+    At most 5,000 source / base-domain windows and cooldown entries are retained.
     """
 
     name = "dns_tunnel"
@@ -184,7 +205,7 @@ class DnsTunnelDetector:
     def __init__(self, span=60.0, min_unique=10, min_avg_len=20, min_avg_entropy=3.3, cooldown=60.0):
         self.span, self.min_unique = span, min_unique
         self.min_avg_len, self.min_avg_entropy, self.cooldown = min_avg_len, min_avg_entropy, cooldown
-        self._w, self._last = {}, {}
+        self._w, self._last = OrderedDict(), OrderedDict()
 
     def observe(self, p):
         if p.dns is None or p.dns[2]:               # only queries, not responses
@@ -195,16 +216,27 @@ class DnsTunnelDetector:
         key = (p.src, base)
         w = self._w.get(key)
         if w is None:
-            if len(self._w) > 5000:
-                self._w.clear()
+            if len(self._w) >= 5000:
+                evicted, _ = self._w.popitem(last=False)
+                self._last.pop(evicted, None)
             w = self._w[key] = _DomainWindow(self.span)
+        else:
+            self._w.move_to_end(key)
         uniq, avg_len, avg_ent = w.add(p.ts, sub)
         if (uniq >= self.min_unique and avg_len >= self.min_avg_len and avg_ent >= self.min_avg_entropy
                 and p.ts - self._last.get(key, -1e18) >= self.cooldown):
             self._last[key] = p.ts
+            self._last.move_to_end(key)
+            if len(self._last) > 5000:
+                self._last.popitem(last=False)
             return [Alert(p.ts, self.name, "high", p.src,
                           f"{uniq} unique subdomains of {base} in {self.span:.0f}s "
-                          f"(avg length {avg_len:.0f}, entropy {avg_ent:.2f} bits/char)")]
+                          f"(avg length {avg_len:.0f}, entropy {avg_ent:.2f} bits/char)",
+                          p.dst, data={"unique_subdomains": uniq, "base_domain": base,
+                                       "window_s": self.span, "min_unique": self.min_unique,
+                                       "avg_length": avg_len, "min_avg_length": self.min_avg_len,
+                                       "avg_entropy": avg_ent,
+                                       "min_avg_entropy": self.min_avg_entropy})]
         return ()
 
 
@@ -212,14 +244,17 @@ class ArpSpoofDetector:
     """An IP address suddenly claimed by a different hardware address (man-in-the-middle sign).
 
     Legitimate causes exist (DHCP renewal, failover, replaced network card), so this is a
-    medium-severity signal that needs a human to confirm.
+    medium-severity signal that needs a human to confirm. At most 50,000 IP mappings are
+    kept, with least-recently-used eviction.
     """
 
     name = "arp_spoof"
 
+    MAX_MAPPINGS = 50000
+
     def __init__(self, cooldown=60.0):
         self.cooldown = cooldown
-        self._table, self._last = {}, {}
+        self._table, self._last = OrderedDict(), {}
 
     def observe(self, p):
         if p.arp is None:
@@ -229,12 +264,70 @@ class ArpSpoofDetector:
             return ()
         old = self._table.get(ip)
         self._table[ip] = mac
+        self._table.move_to_end(ip)
+        if len(self._table) > self.MAX_MAPPINGS:
+            evicted, _ = self._table.popitem(last=False)
+            self._last.pop(evicted, None)
         if old is not None and old != mac and p.ts - self._last.get(ip, -1e18) >= self.cooldown:
             self._last[ip] = p.ts
             return [Alert(p.ts, self.name, "medium", fmt_mac(mac),
-                          f"{ip} moved from {fmt_mac(old)} to {fmt_mac(mac)}")]
+                          f"{ip} moved from {fmt_mac(old)} to {fmt_mac(mac)}",
+                          ip, data={"claimed_ip": ip, "old_mac": fmt_mac(old),
+                                    "new_mac": fmt_mac(mac), "cooldown_s": self.cooldown})]
         return ()
 
 
+class HorizontalScanDetector:
+    """Detect one source sending bare SYNs to one port on many hosts.
+
+    Per-source/port windows are bounded to 4,096 observations and stale keys are
+    periodically evicted; no more than 4,096 active keys are retained.
+    """
+
+    name = "horizontal_scan"
+    MAX_KEYS = 4096
+
+    def __init__(self, window_s=10, min_hosts=30, ignore_ports=(80, 443), cooldown=60.0):
+        self.window_s, self.min_hosts = window_s, min_hosts
+        self.ignore_ports, self.cooldown = set(ignore_ports), cooldown
+        self._state = OrderedDict()
+        self._seen = 0
+
+    def observe(self, p):
+        if not p.is_syn_only or p.dport in self.ignore_ports or not p.src or not p.dst:
+            return ()
+        self._seen += 1
+        if self._seen % 20000 == 0:
+            self._cleanup(p.ts)
+        key = (p.src, p.dport)
+        state = self._state.get(key)
+        if state is None:
+            if len(self._state) >= self.MAX_KEYS:
+                self._cleanup(p.ts, force=True)
+            max_items = min(4096, max(128, self.min_hosts * 2))
+            state = self._state[key] = [SlidingDistinct(self.window_s, max_items), p.ts, -1e18]
+        else:
+            self._state.move_to_end(key)
+        state[1] = max(state[1], p.ts)
+        observed = state[0].add(p.ts, p.dst)
+        if observed >= self.min_hosts and p.ts - state[2] >= self.cooldown:
+            state[2] = p.ts
+            return [Alert(p.ts, self.name, "high", p.src,
+                          f"{observed} hosts probed on port {p.dport} within {self.window_s:g}s",
+                          "many", data={"distinct_hosts": observed, "window_s": self.window_s,
+                                        "threshold": self.min_hosts, "destination_port": p.dport})]
+        return ()
+
+    def _cleanup(self, now, force=False):
+        horizon = now - self.window_s - self.cooldown
+        stale = [key for key, state in self._state.items() if state[1] < horizon]
+        for key in stale:
+            del self._state[key]
+        if force and len(self._state) >= self.MAX_KEYS:
+            for _ in range(len(self._state) - self.MAX_KEYS + 1):
+                self._state.popitem(last=False)
+
+
 def default_detectors():
-    return [PortScanDetector(), SynFloodDetector(), DnsTunnelDetector(), ArpSpoofDetector()]
+    return [PortScanDetector(), SynFloodDetector(), DnsTunnelDetector(), ArpSpoofDetector(),
+            HorizontalScanDetector()]

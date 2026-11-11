@@ -86,7 +86,7 @@ class EwmaZScoreDetector:
         self.frozen = True
 
     def update(self, b):
-        flags, fresh = set(), []
+        flags, fresh, measurements = set(), [], []
         for m in self.metrics:
             s, x = self._s[m], b[m]
             if s["n"] >= self.warmup:
@@ -98,6 +98,8 @@ class EwmaZScoreDetector:
                         if not self.frozen:
                             s["active"] = True
                         fresh.append(f"{m} {x:.0f}/s vs baseline {s['mean']:.0f} (z={z:.1f})")
+                        measurements.append({"metric": m, "observed": x, "baseline": s["mean"],
+                                             "z_score": z, "threshold": self.z})
                     if not self.frozen:
                         s["quiet"] = 0
                     x = s["mean"] + 3 * sigma
@@ -114,5 +116,6 @@ class EwmaZScoreDetector:
                 s["n"] += 1
         self.last_flags = flags
         if fresh:
-            return [Alert(b["t"], self.name, "medium", "-", "; ".join(fresh))]
+            return [Alert(b["t"], self.name, "medium", "-", "; ".join(fresh), "-",
+                          data={"metrics": measurements, "window_s": 1, "z_threshold": self.z})]
         return []

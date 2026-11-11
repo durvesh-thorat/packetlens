@@ -66,7 +66,7 @@ def parse_packet(ts: float, data: bytes, linktype: int = LINKTYPE_ETHERNET) -> O
     """Decode one captured frame. Returns None if it is malformed or unsupported."""
     try:
         return _parse(ts, data, linktype)
-    except (struct.error, IndexError, OSError, Malformed):
+    except (struct.error, IndexError, OSError, TypeError, ValueError, Malformed):
         return None
 
 
