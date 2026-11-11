@@ -53,7 +53,11 @@ class PcapReader:
                 return
             if len(h) < 16:
                 raise PcapError("truncated pcap record header")
-            sec, frac, incl, _orig = rec.unpack(h)
+            sec, frac, incl, orig = rec.unpack(h)
+            if incl > orig:
+                raise PcapError(
+                    f"pcap captured length {incl} exceeds original length {orig}"
+                )
             data = read(incl)
             if len(data) < incl:
                 raise PcapError("truncated pcap packet data")
