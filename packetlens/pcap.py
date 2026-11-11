@@ -49,12 +49,14 @@ class PcapReader:
         read = self._f.read
         while True:
             h = read(16)
-            if len(h) < 16:
+            if not h:
                 return
+            if len(h) < 16:
+                raise PcapError("truncated pcap record header")
             sec, frac, incl, _orig = rec.unpack(h)
             data = read(incl)
-            if len(data) < incl:      # truncated file: stop cleanly
-                return
+            if len(data) < incl:
+                raise PcapError("truncated pcap packet data")
             yield sec + frac / self._res, data
 
     def close(self):

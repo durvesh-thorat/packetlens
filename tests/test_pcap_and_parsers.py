@@ -9,8 +9,13 @@ from packetlens.pcap import PcapError, PcapReader, PcapWriter
 
 
 class PcapTests(unittest.TestCase):
+    def _temporary_capture_path(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return os.path.join(directory.name, "capture.pcap")
+
     def test_roundtrip(self):
-        path = tempfile.mktemp(suffix=".pcap")
+        path = self._temporary_capture_path()
         frames = [(1700000000.25, b"abc"), (1700000001.5, b"defgh")]
         with PcapWriter(path) as w:
             for ts, d in frames:
@@ -18,32 +23,48 @@ class PcapTests(unittest.TestCase):
         with PcapReader(path) as r:
             out = list(r)
             self.assertEqual(r.linktype, 1)
-        os.remove(path)
         self.assertEqual([d for _, d in out], [b"abc", b"defgh"])
         self.assertAlmostEqual(out[0][0], 1700000000.25, places=5)
 
     def test_big_endian_nanosecond_file(self):
         """Same data written big-endian with nanosecond timestamps must read identically."""
-        path = tempfile.mktemp(suffix=".pcap")
+        path = self._temporary_capture_path()
         with open(path, "wb") as f:
             f.write(struct.pack(">IHHiIII", 0xA1B23C4D, 2, 4, 0, 0, 65535, 1))
             f.write(struct.pack(">IIII", 100, 500_000_000, 3, 3) + b"xyz")
         with PcapReader(path) as r:
             ts, data = next(iter(r))
-        os.remove(path)
         self.assertEqual(data, b"xyz")
         self.assertAlmostEqual(ts, 100.5)
 
     def test_rejects_non_pcap(self):
-        path = tempfile.mktemp()
+        path = self._temporary_capture_path()
         with open(path, "wb") as f:
             f.write(b"\x0a\x0d\x0d\x0a" + b"\0" * 40)             # pcapng magic
         with self.assertRaises(PcapError):
             PcapReader(path)
-        os.remove(path)
 
-    def test_truncated_file_stops_cleanly(self):
-        path = tempfile.mktemp()
+    def test_empty_capture_is_valid(self):
+        path = self._temporary_capture_path()
+        with PcapWriter(path):
+            pass
+        with PcapReader(path) as r:
+            self.assertEqual(list(r), [])
+
+    def test_truncated_record_header_raises(self):
+        path = self._temporary_capture_path()
+        with PcapWriter(path) as w:
+            w.write(1.0, b"abcdef")
+        with open(path, "rb") as f:
+            data = f.read()
+        with open(path, "wb") as f:
+            f.write(data[:32])
+        with PcapReader(path) as r:
+            with self.assertRaisesRegex(PcapError, "truncated pcap record header"):
+                list(r)
+
+    def test_truncated_packet_data_raises(self):
+        path = self._temporary_capture_path()
         with PcapWriter(path) as w:
             w.write(1.0, b"abcdef")
         with open(path, "rb") as f:
@@ -51,8 +72,8 @@ class PcapTests(unittest.TestCase):
         with open(path, "wb") as f:
             f.write(data[:-3])
         with PcapReader(path) as r:
-            self.assertEqual(list(r), [])
-        os.remove(path)
+            with self.assertRaisesRegex(PcapError, "truncated pcap packet data"):
+                list(r)
 
 
 class ParserTests(unittest.TestCase):
