@@ -1,11 +1,16 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 from packetlens.evaluate import evaluate_rules
+from packetlens.pcap import PcapWriter
 from packetlens.policy import Policy, default_policy_path, load_policy, validate_policy
+from packetlens.synth import generate
+from scripts.evaluate_hf_pcaps import analyze_capture
+from scripts.import_hf_pcaps import CURATED_CAPTURES, inspect_classic_pcap_header
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -80,6 +85,31 @@ class DetectionValidationTests(unittest.TestCase):
         data = json.loads(res.stdout)
         self.assertEqual(data["clean_hours"], 1.0)
         self.assertEqual(len(data["rules"]), 6)
+
+    def test_hf_pcap_tools_and_recorded_validation_artifact(self):
+        self.assertGreaterEqual(len(CURATED_CAPTURES), 10)
+        with tempfile.TemporaryDirectory() as tmp:
+            pcap = Path(tmp) / "sample.pcap"
+            frames, _ = generate(20, seed=11, attacks=False)
+            with PcapWriter(pcap) as writer:
+                for ts, frame in frames:
+                    writer.write(ts, frame)
+            header = inspect_classic_pcap_header(pcap)
+            self.assertTrue(header["supported"])
+            self.assertEqual(header["linktype"], 1)
+
+            stats = analyze_capture(pcap, load_policy(default_policy_path()))
+            self.assertEqual(stats["packets"], len(frames))
+            self.assertEqual(stats["malformed"], 0)
+            self.assertGreater(stats["pps"], 0)
+
+        artifact = ROOT / "results" / "hf_pcap_validation.json"
+        self.assertTrue(artifact.is_file())
+        saved = json.loads(artifact.read_text(encoding="utf-8"))
+        self.assertEqual(len(saved["captures"]), 12)
+        benign = next(c for c in saved["captures"] if c["local_path"].endswith("run1260_benign.pcap"))
+        sig_alerts = {k: v for k, v in benign["alerts_by_kind"].items() if k != "volumetric"}
+        self.assertEqual(sig_alerts, {})
 
 
 if __name__ == "__main__":
