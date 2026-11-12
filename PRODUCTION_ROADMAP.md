@@ -1,9 +1,9 @@
 # PacketLens Production Readiness Roadmap
 
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
-**Last reviewed:** 2026-11-11
+**Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M0 — define a specific deployment target.
+**Current milestone:** M3 — Reliability and observability (M0, M1, M2 complete).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -27,29 +27,58 @@ IDS products.
 - Intended environment: one Windows 11 workstation for on-demand offline analysis and
   replay of PCAP files. This is the first validation target, not live monitoring or a
   production claim.
-- Operating system: Windows 11 is the target to validate, not yet a verified support
-  claim.
+- Operating system: Windows 11 (`Windows-11-10.0.26300-SP0`, Python `3.12.10`, Node
+  `v26.5.0`) host baseline verified on 2026-11-12 via full unit tests and synthetic
+  reproduction (`88` core tests pass with 18 optional-ML skips; `85` pass with 3
+  Granite-only skips under `.venv-ci`; `node --check packetlens/static/app.js` passes).
+  Live Linux `AF_PACKET` remains outside Windows 11 support.
 - Network authorization: analyze only captures the maintainer owns or is explicitly
   authorized to handle. Treat capture contents as sensitive.
-- Operator and response: the project maintainer reviews alerts; PacketLens is alert-only
-  and does not automatically block traffic.
-- Capture source: supported PCAP formats and link types only. Do not claim pcapng support;
-  convert only as documented and verified. Live Linux `AF_PACKET` is outside this first
-  target.
-- Traffic capacity: no live traffic-rate target. Maximum file size and processing-capacity
-  limits are **TBD** until baseline and load measurements are recorded.
-- Detection scope: existing packet/time-volume detectors only. Offline CIC-IDS2017 flow
-  experiments remain separate and are not part of live or PCAP packet detection.
-- False-alarm and detection acceptance targets: measurable targets are **TBD**; set them
-  from representative evidence before a pilot. Do not invent numerical targets.
-- Data handling: local-only; captures, addresses, names, and alerts are sensitive. Set a
-  retention/deletion period (**TBD**) before using real captures. Until then, use
-  synthetic or appropriately authorized data.
-- Availability and recovery: on-demand analysis only; no 24/7 availability promise.
-  Backup/recovery requirements are **TBD** before deployment.
+- Operator and response: the project maintainer reviews alerts via CLI, local loopback
+  dashboard (`127.0.0.1`), and standalone HTML reports; PacketLens is strictly
+  alert-only and never blocks, modifies, or injects network traffic.
+- Capture source: classic PCAP (version 2.4, microsecond/nanosecond resolution) with
+  Ethernet (`1`) and Linux cooked (`113`) link types only. Pcapng is not supported;
+  convert externally (e.g., `editcap -F pcap`) before analysis. Live Linux `AF_PACKET`
+  is outside this first target.
+- Traffic capacity: no live traffic-rate target. Initial offline operational limits for
+  the Windows 11 workstation target:
+  - Maximum recommended single-PCAP file size: 2 GB (larger captures should be split with
+    `editcap` before offline analysis).
+  - Baseline Windows 11 offline throughput (measured 2026-11-12 via
+    `python -m packetlens reproduce --skip-real`): `250,014` packets/s parse-only,
+    `99,874` packets/s full pipeline (`102,773` synthetic packets). Processing target for
+    offline analysis is >= `50,000` packets/s without store queue drops (`QUEUE_CAPACITY =
+    10,000` in `packetlens/store.py`), subject to M3 load validation.
+- Detection scope: existing six packet/time-volume detectors (`port_scan`, `syn_flood`,
+  `dns_tunnel`, `arp_spoof`, `horizontal_scan`, `volumetric`) governed by validated JSON
+  policy (`packetlens/policies/default.json`). Offline CIC-IDS2017 flow experiments
+  (`flows`, `flowmodel`) remain separate and are not part of live or PCAP packet detection.
+- False-alarm and detection acceptance targets (grounded in `results/evaluation.json` and
+  baseline reproduction; subject to M5 real-traffic validation):
+  - Synthetic baseline gate (must not regress): `7/7` scripted attacks detected (`100%`
+    event recall), alert precision >= `0.90` (`0.909` observed), and `0` false positives
+    on clean synthetic traffic from signature-style detectors (`port_scan`, `syn_flood`,
+    `dns_tunnel`, `arp_spoof`, `horizontal_scan`).
+  - Pilot/real-capture acceptance gate before M6 deployment: <= `1.0` false-positive
+    alert per hour on representative benign captures per enabled rule, or the offending
+    rule (such as `volumetric`, currently `12.0`/hr on synthetic clean traffic) must be
+    tuned, allowlisted, or marked experimental/disabled in policy.
+- Data handling: local-only SQLite storage (`packetlens.db`) and local HTML reports;
+  captures, addresses, DNS names, and alert details are sensitive and treated as
+  untrusted input. Default retention period: **90 days** for closed incidents, alerts,
+  minute stats, and capture-run records (with active/open incidents preserved until
+  triaged and closed); captures containing sensitive traffic should be deleted or moved
+  to encrypted offline storage once analysis and reporting are complete.
+- Availability and recovery: on-demand offline analysis only; no 24/7 availability SLA.
+  Operator-initiated SQLite backup (WAL-safe copy/backup command before schema upgrades
+  or major runs) and documented recovery/restore procedure (implemented and tested in M3).
+- Explicit non-goals: no automated traffic blocking or IPS mode; no pcapng parsing; no
+  Windows live packet capture driver; no multi-user remote authentication or TLS built
+  into the loopback HTTP server; no real-time ML inference in the packet pipeline.
 
-These decisions define a validation target, not a verified support or production claim.
-Resolve each **TBD** before the relevant pilot or deployment activity.
+These decisions define the Windows 11 offline PCAP validation target and initial
+acceptance gates. Maintainer sign-off for pilot/production use is tracked in Section 10.
 
 ## 3. Current baseline (documented, not freshly audited)
 
@@ -99,14 +128,18 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-12):** 2/8 milestones are DONE (25.0%). This is
+**Milestone-status proxy (as of 2026-11-12):** 3/8 milestones are DONE (37.5%). This is
 not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
-**Status: IN PROGRESS**
+**Status: DONE — scope, capacity bounds, acceptance gates, retention, and non-goals defined (pending maintainer sign-off in Section 10 for pilot)**
 Choose one authorized environment; fill Section 2; define measurable acceptance targets,
 operator responsibilities, data handling, and explicit non-goals.
 **Exit:** Section 2 is complete and reviewed by the maintainer.
+
+Section 2 TBDs are resolved with evidence-grounded defaults (`results/evaluation.json`,
+Windows 11 baseline reproduction on 2026-11-12, and `packetlens/store.py` bounds), explicit
+non-goals are documented, and `DEC-2026-11-12-m0-target-scope` is logged in Section 10.
 
 ### M1 — Reproduce the baseline
 **Status: DONE — baseline captured; known checks skipped/unavailable**
@@ -553,6 +586,30 @@ test run recorded in this log.
   M3 reliability and M4 security review remain outstanding.
 - Next task: Resolve M0 deployment-target decisions and continue with M3 reliability work.
 
+#### 2026-11-12 — M0 target scope and Windows 11 host baseline recorded
+- Milestone/status: M0 — DONE (Section 2 complete; Section 10 decision logged as
+  `PROPOSED` for final maintainer sign-off prior to pilot).
+- Goal and files changed: Resolve all Section 2 TBDs with evidence-backed Windows 11
+  offline PCAP targets, acceptance gates, 90-day retention, backup/recovery expectations,
+  and explicit non-goals. Changed `PRODUCTION_ROADMAP.md` only.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -v` — exit 0; 88 tests run, 70 passed, 18
+    skipped (11 require pandas+scikit-learn, 4 require pandas, 3 require
+    torch+tsfm_public), 0 failed.
+  - `.venv-ci\Scripts\python.exe -m unittest discover -s tests -v` — exit 0; 88 tests
+    run, 85 passed, 3 skipped (torch+tsfm_public), 0 failed.
+  - `node --check packetlens/static/app.js` — exit 0 (`node v26.5.0`).
+  - `python -m packetlens reproduce --skip-real` — exit 0; 7/7 synthetic attacks
+    detected, alert precision 10/11 (0.909), clean synthetic traffic 1 volumetric alert
+    (12.0/hr), Windows 11 benchmark 250,014 packets/s parse-only and 99,874 packets/s
+    full pipeline on 102,773 packets.
+- Evidence/artifact: `PRODUCTION_ROADMAP.md` Sections 2, 5, and 10; `results/evaluation.json`.
+- Remaining risks or unverified assumptions: Maintainer must review and approve
+  `DEC-2026-11-12-m0-target-scope` before M6 pilot. Real-capture false-alarm rates are
+  not yet measured (M5).
+- Next task: Start M3 (`roadmap/m3-reliability-observability`) for reliability,
+  observability, retention/backup tooling, and load/failure testing.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -567,6 +624,24 @@ test run recorded in this log.
 
 Record scope, security, privacy, deployment, and risk-acceptance decisions here. AI agents
 may prepare evidence or options, but only the project maintainer can approve a decision.
+
+#### DEC-2026-11-12-m0-target-scope — Windows 11 offline PCAP validation scope and acceptance targets
+- Decision and exact scope: Adopt Section 2 scope for one Windows 11 workstation running
+  offline classic-PCAP analysis and loopback dashboard replay (`127.0.0.1` only), alert-only,
+  2 GB max PCAP input, >= 50,000 packets/s offline pipeline target, synthetic regression
+  gate (7/7 attacks, >= 0.90 alert precision), pilot <= 1.0 FP/hr per enabled rule gate,
+  and 90-day local SQLite retention for closed records.
+- Decision owner: Project maintainer
+- Reviewers consulted: AI Coordinator (evidence prepared from Windows 11 baseline runs)
+- Evidence and alternatives considered: Windows 11 baseline (`88` tests passing,
+  `99,874` pps pipeline benchmark), `results/evaluation.json`. Considered 30-day vs
+  90-day retention; selected 90-day default so historical incident triage remains
+  available without unbounded growth.
+- Risks accepted / rejected: Accepted offline-only scope (no Windows live capture) and
+  marking `volumetric` subject to M5 real-traffic false-alarm validation; rejected
+  unbounded storage retention and non-loopback HTTP exposure.
+- Approval status: `PROPOSED` (awaiting maintainer confirmation before M6 pilot)
+- Review date or trigger: Before M6 controlled pilot or any change to deployment OS/capture source.
 
 ### Decision entry template
 
