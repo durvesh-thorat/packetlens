@@ -14,7 +14,7 @@ from .store import Store
 
 def _check_linktype(linktype):
     if linktype not in SUPPORTED_LINKTYPES:
-        sys.exit(f"Unsupported link type {linktype}. Supported: Ethernet (1) and Linux cooked (113).")
+        raise PcapError(f"Unsupported link type {linktype}. Supported: Ethernet (1) and Linux cooked (113).")
 
 
 def cmd_analyze(a):
@@ -23,13 +23,16 @@ def cmd_analyze(a):
         policy = load_policy(a.policy) if a.policy else None
         eng, alerts = Engine(policy=policy, store=store), []
         t0 = time.perf_counter()
-        with PcapReader(a.file) as r:
-            _check_linktype(r.linktype)
-            first_ts = last_ts = None
-            for ts, data in r:
-                first_ts = ts if first_ts is None else first_ts
-                last_ts = ts
-                alerts += eng.process(ts, data, r.linktype)
+        try:
+            with PcapReader(a.file) as r:
+                _check_linktype(r.linktype)
+                first_ts = last_ts = None
+                for ts, data in r:
+                    first_ts = ts if first_ts is None else first_ts
+                    last_ts = ts
+                    alerts += eng.process(ts, data, r.linktype)
+        except PcapError as exc:
+            sys.exit(str(exc))
         alerts += eng.finish()
         dt = time.perf_counter() - t0
         s = eng.snapshot()
@@ -71,9 +74,12 @@ def cmd_serve(a):
     store = Store(a.db)
     eng = Engine(policy=policy, store=store)
     if a.pcap:
-        with PcapReader(a.pcap) as probe:
-            _check_linktype(probe.linktype)
-            linktype = probe.linktype
+        try:
+            with PcapReader(a.pcap) as probe:
+                _check_linktype(probe.linktype)
+                linktype = probe.linktype
+        except PcapError as exc:
+            sys.exit(str(exc))
 
         def packets():
             with PcapReader(a.pcap) as r:

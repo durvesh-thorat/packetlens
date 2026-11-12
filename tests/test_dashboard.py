@@ -3,12 +3,13 @@ import json
 import re
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from http.server import ThreadingHTTPServer
 
 from packetlens import synth
-from packetlens.dashboard import CSP, make_handler
+from packetlens.dashboard import CSP, SOURCE_STALE_AFTER_S, SourceHealth, make_handler
 from packetlens.detectors import Alert
 from packetlens.engine import Engine
 from packetlens.parsers import parse_packet
@@ -39,8 +40,10 @@ class DashboardTests(unittest.TestCase):
         self.store.flush()
         self.token = "test-token"
         self.results = Path(self.temp.name) / "results"
+        self.source_health = SourceHealth(self.engine, 0)
         handler = make_handler(self.engine, self.store, self.token, "test capture",
-                               effective_policy(), self.results, 0)
+                               effective_policy(), self.results, 0,
+                               source_health=self.source_health)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.server.daemon_threads = True
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -81,8 +84,14 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(headers["Referrer-Policy"], "no-referrer")
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertTrue({"uptime_s", "source", "packets_total", "bytes_total", "malformed",
-                         "packets_per_s", "now", "store_counters", "policy", "version"} <= health.keys())
+                         "packets_per_s", "now", "store_counters", "policy", "version",
+                         "source_status", "source_stale", "source_age_s",
+                         "source_last_packet_ts"} <= health.keys())
         self.assertEqual(health["source"], "test capture")
+        self.assertEqual(health["source_status"], "healthy")
+        self.assertFalse(health["source_stale"])
+        self.assertLess(health["source_age_s"], SOURCE_STALE_AFTER_S)
+        self.assertEqual(health["source_last_packet_ts"], 1_700_000_000.25)
 
         status, _headers, overview = self.json_request("/api/overview?window=300")
         self.assertEqual(status, 200)
@@ -128,6 +137,26 @@ class DashboardTests(unittest.TestCase):
         status, _headers, report = self.json_request("/api/quality/evaluation.json")
         self.assertEqual(status, 200)
         self.assertEqual(report, {"untouched": True})
+
+    def test_health_reports_stale_source_after_timeout_and_recovers(self):
+        with self.source_health.lock:
+            self.source_health.last_packet_monotonic = (
+                time.monotonic() - SOURCE_STALE_AFTER_S - 1
+            )
+
+        status, _headers, health = self.json_request("/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(health["source_status"], "stale")
+        self.assertTrue(health["source_stale"])
+        self.assertGreaterEqual(health["source_age_s"], SOURCE_STALE_AFTER_S)
+        self.assertEqual(health["source_last_packet_ts"], 1_700_000_000.25)
+
+        self.source_health.packet_received(1_700_000_010.5)
+        status, _headers, health = self.json_request("/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(health["source_status"], "healthy")
+        self.assertFalse(health["source_stale"])
+        self.assertEqual(health["source_last_packet_ts"], 1_700_000_010.5)
 
     def test_quality_result_name_validation_and_size_limit(self):
         self.results.mkdir()

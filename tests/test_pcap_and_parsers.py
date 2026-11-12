@@ -40,6 +40,45 @@ class PcapTests(unittest.TestCase):
         self.assertEqual([d for _, d in out], [b"abc", b"defgh"])
         self.assertAlmostEqual(out[0][0], 1700000000.25, places=5)
 
+    def test_writer_accepts_supported_link_types(self):
+        for linktype in (1, 113):
+            with self.subTest(linktype=linktype):
+                path = self._temporary_capture_path()
+                with PcapWriter(path, linktype=linktype):
+                    pass
+                with open(path, "rb") as capture:
+                    global_header = struct.unpack("<IHHiIII", capture.read(24))
+                self.assertEqual(global_header[6], linktype)
+
+    def test_writer_rejects_unsupported_link_types_before_creating_file(self):
+        for linktype in (0, 999):
+            with self.subTest(linktype=linktype):
+                path = self._temporary_capture_path()
+                with self.assertRaisesRegex(
+                    PcapError, f"Unsupported link type {linktype}"
+                ):
+                    PcapWriter(path, linktype=linktype)
+                self.assertFalse(os.path.exists(path))
+
+    def test_unsupported_link_type_is_rejected_before_record_reads(self):
+        class TrackingStream(BytesIO):
+            def __init__(self, data):
+                super().__init__(data)
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                return super().read(size)
+
+        stream = TrackingStream(
+            struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 999)
+            + struct.pack("<IIII", 1, 0, 0, 0)
+        )
+        with patch("builtins.open", return_value=stream):
+            with self.assertRaisesRegex(PcapError, "Unsupported link type 999"):
+                PcapReader("unused.pcap")
+        self.assertEqual(stream.read_sizes, [24])
+
     def test_version_2_4_is_valid_in_both_byte_orders(self):
         formats = (
             ("little-endian", "<", 0xA1B2C3D4),
@@ -239,8 +278,10 @@ class UnsupportedLinkTypeCliTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.pcap = os.path.join(self.temp.name, "unsupported-linktype.pcap")
-        with PcapWriter(self.pcap, linktype=999):
-            pass
+        with open(self.pcap, "wb") as capture:
+            capture.write(
+                struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 999)
+            )
 
     def _assert_cli_rejects_capture(self, command):
         result = subprocess.run(

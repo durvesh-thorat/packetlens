@@ -58,10 +58,12 @@ exports a standalone HTML report.
   Their scope and evidence limits are documented in the evaluation protocol and limitations.
 
 Classic pcap captures with a partial record header or packet payload, or a captured packet length greater than the
-original packet length or a nonzero global-header snaplen, are rejected with an error before packet data is read. A
-global-header snaplen of zero imposes no captured-length bound on the reader. A captured length smaller than the
-original length is valid when it is within snaplen (snap-truncated capture); an empty capture with a complete global
-header is also valid.
+original packet length or a nonzero global-header snaplen, are rejected with an error before packet data is read. The
+reader rejects an unsupported pcap link type before packet records are read; `PcapWriter` accepts only Ethernet (1)
+and Linux cooked (113), and raises `PcapError` for other link types before opening the output file. A global-header
+snaplen of zero imposes no
+captured-length bound on the reader. A captured length smaller than the original length is valid when it is within
+snaplen (snap-truncated capture); an empty capture with a complete global header is also valid.
 Only global-header version 2.4 is supported; other major/minor versions are rejected before record reads. Timestamp
 fractions at or above 1,000,000 in microsecond captures or 1,000,000,000 in nanosecond captures are rejected. For a
 nonzero configured snaplen, `PcapWriter` rejects larger packet data rather than truncating it. Separately, the

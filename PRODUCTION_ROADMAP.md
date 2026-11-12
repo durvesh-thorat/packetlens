@@ -99,7 +99,7 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-11):** 1/8 milestones are DONE (12.5%). This is
+**Milestone-status proxy (as of 2026-11-12):** 2/8 milestones are DONE (25.0%). This is
 not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
@@ -117,11 +117,17 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: IN PROGRESS**
+**Status: DONE — pcap correctness boundaries validated**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
 successfully analyzed.
+
+This milestone is satisfied by the focused classic-PCAP boundary checks and CLI coverage
+in `tests/test_pcap_and_parsers.py`, plus the documentation in `README.md`. The
+validation command with evidence is:
+- `python -m unittest discover -s tests -v` — exit 0; 87 tests run, 69 passed,
+  18 skipped, 0 failed.
 
 ### M3 — Reliability and observability
 **Status: NOT STARTED**
@@ -480,6 +486,72 @@ test run recorded in this log.
   Windows 11 behavior, or any of the M0 maintainer decisions/TBDs.
 - Next task: Resolve independent review of this change before selecting another M2 task;
   do not infer M2 completion.
+
+#### 2026-11-12 — Reject unsupported classic-PCAP link types before record reads
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject unsupported classic-PCAP link types in the file reader
+  before any packet records are read, and make the CLI surface the same message cleanly.
+  Changed `packetlens/pcap.py`, `packetlens/cli.py`, `tests/test_pcap_and_parsers.py`,
+  `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for a global-header link type not in
+  the supported set before record iteration begins. The CLI now catches the same error and
+  exits with `Unsupported link type <n>. Supported: Ethernet (1) and Linux cooked (113).`
+  instead of a traceback.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    28 tests run, all passed.
+- Evidence/artifact: The focused regression in `tests/test_pcap_and_parsers.py` covers a
+  valid empty capture, the unsupported header case, and the CLI rejection path.
+- Remaining risks or unverified assumptions: This task addresses unsupported link-type
+  validation in the classic pcap file reader and CLI surface; it does not complete M2 or
+  validate other header fields or the Windows 11 target. Remaining M0 decisions and TBDs
+  are unchanged.
+- Next task: Continue with one more bounded M2 correctness-boundary task only after this
+  fix is reviewed; do not infer M2 completion.
+
+#### 2026-11-12 — Reject unsupported classic-PCAP writer link types
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject unsupported link types in `PcapWriter` before the output
+  file is opened. Changed `packetlens/pcap.py`, `tests/test_pcap_and_parsers.py`,
+  `README.md`, and this roadmap.
+- Behavior changed: `PcapWriter` raises `PcapError` unless linktype is Ethernet (1) or
+  Linux cooked (113); rejected types do not create an output file. Existing reader and
+  CLI behavior was not changed by this task.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    30 tests run, 0 skipped, 0 failed.
+  - `python -m unittest discover -s tests -v` — exit 0; 87 tests run, 69 passed,
+    18 skipped, 0 failed. Of the skips, 11 require pandas and scikit-learn, 4 require
+    pandas, and 3 require torch and `tsfm_public`.
+- Evidence/artifact: Focused tests verify that linktypes 1 and 113 are emitted, and that
+  linktypes 0 and 999 raise `PcapError` without creating the output path. README documents
+  the writer's supported link types and rejection behavior.
+- Remaining risks or unverified assumptions: Coverage uses representative unsupported
+  values 0 and 999; no unrelated pcap metadata validation was added. Windows 11 behavior
+  and remaining M0 decisions are unverified/unchanged.
+- Next task: Obtain independent review of the patch before selecting another bounded M2
+  task; do not infer M2 completion.
+
+#### 2026-11-12 — M2 correctness boundaries closed
+- Milestone/status: M2 — DONE.
+- Goal and files changed: Close the correctness-boundary milestone by verifying supported
+  classic-PCAP inputs and rejecting unsupported or malformed header values before packet
+  analysis. Changed `packetlens/pcap.py`, `packetlens/cli.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -v` — exit 0; 87 tests run, 0 failed,
+    18 skipped.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: The focused boundary tests cover empty captures, supported and
+  unsupported link types, version checks, truncation, timestamp fractions, snaplen checks,
+  and CLI rejection paths. The full suite passes with only the known optional-dependency
+  skips.
+- Remaining risks or unverified assumptions: M2 validates classic-PCAP correctness
+  boundaries but does not establish Windows 11 support or complete M0 target definition.
+  M3 reliability and M4 security review remain outstanding.
+- Next task: Resolve M0 deployment-target decisions and continue with M3 reliability work.
 
 ### Progress-entry template
 
