@@ -227,6 +227,9 @@ class PcapTests(unittest.TestCase):
         path = self._temporary_capture_path()
         with PcapWriter(path, snaplen=0) as writer:
             writer.write(1.0, b"longer than zero")
+        with open(path, "rb") as capture:
+            global_header = struct.unpack("<IHHiIII", capture.read(24))
+        self.assertEqual(global_header[5], 0)
         with PcapReader(path) as reader:
             self.assertEqual(list(reader), [(1.0, b"longer than zero")])
 

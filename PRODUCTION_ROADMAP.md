@@ -343,13 +343,15 @@ test run recorded in this log.
 - Evidence/artifact: Focused regression tests in `tests/test_pcap_and_parsers.py` cover
   captured length equal to snaplen, greater than snaplen before payload read, smaller
   than original but within snaplen, original-length error precedence, writer rejection,
-  and existing zero-snaplen behavior.
-- Remaining risks or unverified assumptions: Zero-snaplen meaning is not defined by
-  repository documentation or prior tests; current behavior is preserved and its
-  format-level meaning remains unverified. Eighteen optional-dependency tests were
-  skipped as noted above. This task does not complete M2 or validate other PCAP
-  metadata/boundaries. Windows 11 behavior and the remaining M0 decisions are still
-  unverified/TBD.
+  and existing zero-snaplen behavior. The
+  [libpcap savefile documentation](https://www.tcpdump.org/manpages/pcap-savefile.5.html)
+  defines snaplen zero as no captured-length limit.
+- Remaining risks or unverified assumptions: The savefile documentation defines
+  zero-snaplen meaning; PacketLens's `PcapWriter(snaplen=0)` behavior is application
+  specific and is now tested to write zero to the header and preserve a nonempty packet
+  without truncation. Eighteen optional-dependency tests were skipped as noted above.
+  This task does not complete M2 or validate other PCAP metadata/boundaries. Windows 11
+  behavior and the remaining M0 decisions are still unverified/TBD.
 - Next task: Continue M2 with one separate focused correctness-boundary task; do not
   infer M2 completion from this entry.
 
@@ -449,6 +451,35 @@ test run recorded in this log.
   unverified and unchanged.
 - Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
   M2 completion.
+
+#### 2026-11-12 — Clarify classic pcap zero-snaplen behavior
+- Milestone/status: M2 — IN PROGRESS; this is a documentation and test clarification,
+  not completion of the milestone.
+- Goal and files changed: Clarify zero-snaplen reader and PacketLens writer behavior,
+  and verify the writer's emitted header field. Changed `README.md`,
+  `tests/test_pcap_and_parsers.py`, and this roadmap.
+- Behavior changed: README states that reader snaplen zero imposes no captured-length
+  bound and distinguishes PacketLens's `PcapWriter(snaplen=0)` behavior: it writes zero
+  in the global header and does not truncate nonempty packet data. The test asserts the
+  header value and round-trips a nonempty packet.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    27 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 84 tests run, 0 failures,
+    18 skipped: 11 require pandas and scikit-learn, 4 require pandas, and 3 require
+    torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: The
+  [libpcap savefile documentation](https://www.tcpdump.org/manpages/pcap-savefile.5.html)
+  defines snaplen zero as no captured-length limit. The focused regression verifies
+  PacketLens's writer emits zero in the header and round-trips a nonempty payload.
+- Review status: Pending. PacketLens Reviewer was invoked twice but could not access
+  the actual Git diff and made no findings; no independent review result is claimed.
+- Remaining risks or unverified assumptions: The writer's zero-snaplen behavior is
+  PacketLens-specific; this task does not validate other PCAP formats or boundaries,
+  Windows 11 behavior, or any of the M0 maintainer decisions/TBDs.
+- Next task: Resolve independent review of this change before selecting another M2 task;
+  do not infer M2 completion.
 
 ### Progress-entry template
 
