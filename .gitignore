@@ -9,3 +9,5 @@ cicids2017_traffic_label/
 *.csv
 temp.py
 results/*.pcap
+review/
+review/
