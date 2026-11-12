@@ -99,6 +99,9 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
+**Milestone-status proxy (as of 2026-11-11):** 1/8 milestones are DONE (12.5%). This is
+not overall engineering completion, production readiness, or weighted work progress.
+
 ### M0 — Define the target
 **Status: IN PROGRESS**
 Choose one authorized environment; fill Section 2; define measurable acceptance targets,
@@ -114,7 +117,7 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: NOT STARTED**
+**Status: IN PROGRESS**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
@@ -246,6 +249,237 @@ test run recorded in this log.
   JavaScript syntax check remain unverified. This baseline does not establish Windows 11
   support or production readiness.
 - Next task: Review M1 evidence and continue M0 scope decisions.
+
+#### 2026-11-11 — Reject truncated classic pcap records
+- Milestone/status: M2 — IN PROGRESS; this is one bounded boundary fix, not completion
+  of the milestone.
+- Goal and files changed: Make partial pcap record headers and packet payloads explicit
+  errors while preserving a valid empty capture. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for a partial record header or packet
+  payload instead of silently ending iteration. A complete global header with no records
+  remains valid. Documented that behavior and retained the pcapng limitation.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    15 tests run, all passed.
+  - `python -m unittest discover -s tests -v` — exit 0; 72 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - CLI truncation check using a temporary truncated capture — exit 1 as expected;
+    stderr: `error: truncated pcap packet data`.
+  - `node --check packetlens/static/app.js` — exit 127; unavailable because `node` is
+    not installed. Not passed.
+  - `git diff --check` — exit 2 because the repository files use CRLF and Git treated
+    added CR characters as trailing whitespace. CRLF-aware check,
+    `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: `PRODUCTION_ROADMAP.md`, `README.md`, and the focused regression
+  tests in `tests/test_pcap_and_parsers.py`; runtime was Python 3.12.16 on Linux.
+- Remaining risks or unverified assumptions: This change covers physically truncated
+  record headers and packet payloads only; semantic bounds such as captured length versus
+  snaplen/original length remain unverified. Optional-dependency tests and the JavaScript
+  syntax check were unavailable/skipped as noted above. M0 maintainer decisions remain
+  as recorded in Section 2; no TBD was resolved here.
+- Next task: Continue M2 with one focused validation of malformed record metadata or
+  unsupported link types, without treating this task as full pcap format validation.
+
+#### 2026-11-11 — Reject captured lengths greater than original lengths
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-pcap records whose captured length exceeds
+  their original packet length. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` with both lengths in its message
+  before reading or yielding the record payload when captured length exceeds original
+  length. Equal lengths remain accepted; a smaller captured length remains valid for a
+  snap-truncated capture. Existing physical-truncation errors and complete-empty-capture
+  behavior were retained.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    17 tests run, all passed, 0 skipped.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+  - `python -m unittest discover -s tests -v` — exit 0; 74 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - One-off CLI integration check using a temporary classic-PCAP record with
+    `incl_len=5`, `orig_len=4` — wrapper exit 0; CLI exit 1, empty stdout, stderr:
+    `error: pcap captured length 5 exceeds original length 4`. The check was not added
+    as a persistent test.
+  - JavaScript syntax check — not run; unrelated to this change. No unavailable tools
+    were needed for the checks above.
+- Evidence/artifact: Regression tests in `tests/test_pcap_and_parsers.py` cover the
+  invalid larger captured length and valid smaller captured length; existing tests
+  cover equal lengths, physical truncation, and a valid empty capture.
+- Remaining risks or unverified assumptions: This check does not validate snaplen,
+  timestamp fractions, or other record metadata. CLI failure behavior was checked once;
+  partial-analysis semantics remain untested. M0 acceptance targets, traffic capacity,
+  retention, and backup/recovery remain TBD and maintainer-owned. Offline PCAP/replay on
+  Windows 11 remains the first validation target; Windows 11 is unverified, and Linux
+  live capture remains out of scope.
+- Next task: Have the coordinator select one further focused M2 boundary check (for
+  example, unsupported link-type behavior); do not infer M2 completion from this entry.
+
+#### 2026-11-11 — Enforce classic pcap snaplen bounds
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-PCAP record captured lengths larger than the
+  global-header snaplen before payload reads, and reject writer data larger than its
+  configured snaplen. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for `incl_len > snaplen`, while
+  retaining the existing `incl_len > orig_len` error precedence. Captures with
+  `incl_len < orig_len` remain valid when within snaplen. `PcapWriter` rejects packet
+  data larger than a nonzero configured snaplen instead of truncating it. Existing
+  zero-snaplen behavior is preserved: the reader and writer impose no size bound when
+  snaplen is zero.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    21 tests run, all passed.
+  - `python -m unittest discover -s tests -v` — exit 0; 78 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0 after all changes.
+  - Independent PacketLens Reviewer review — no actionable correctness, regression,
+    or focused-test gaps found in the supplied diff; reviewer did not run tests.
+- Evidence/artifact: Focused regression tests in `tests/test_pcap_and_parsers.py` cover
+  captured length equal to snaplen, greater than snaplen before payload read, smaller
+  than original but within snaplen, original-length error precedence, writer rejection,
+  and existing zero-snaplen behavior. The
+  [libpcap savefile documentation](https://www.tcpdump.org/manpages/pcap-savefile.5.html)
+  defines snaplen zero as no captured-length limit.
+- Remaining risks or unverified assumptions: The savefile documentation defines
+  zero-snaplen meaning; PacketLens's `PcapWriter(snaplen=0)` behavior is application
+  specific and is now tested to write zero to the header and preserve a nonempty packet
+  without truncation. Eighteen optional-dependency tests were skipped as noted above.
+  This task does not complete M2 or validate other PCAP metadata/boundaries. Windows 11
+  behavior and the remaining M0 decisions are still unverified/TBD.
+- Next task: Continue M2 with one separate focused correctness-boundary task; do not
+  infer M2 completion from this entry.
+
+#### 2026-11-11 — Test CLI rejection of unsupported PCAP link types
+- Milestone/status: M2 — IN PROGRESS; this is a focused CLI regression check, not
+  completion of the milestone.
+- Goal and files changed: Add subprocess regression tests verifying that `analyze` and
+  `serve --pcap` reject a classic-PCAP capture with unsupported link type 999 using
+  the existing CLI diagnostic. Changed `tests/test_pcap_and_parsers.py`; no production
+  behavior changed.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    23 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 80 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol show --check HEAD` — exit 0.
+- Evidence/artifact: Both CLI regression tests use a valid empty classic-PCAP header
+  with link type 999 and assert nonzero exit plus the unsupported-link-type diagnostic.
+  Existing CLI checks reject unsupported link types before processing the capture.
+- Review findings: PacketLens Reviewer inspected
+  `tests/test_pcap_and_parsers.py`, `packetlens/pcap.py`, `packetlens/cli.py`,
+  `packetlens/__main__.py`, and link-type definitions in `packetlens/parsers.py`;
+  reported no actionable findings and did not run tests. Reviewer could not verify
+  the commit object or exact commit diff. The coordinator independently inspected
+  commit `a36dd172` and confirmed it contains only the described test change.
+- Remaining risks or unverified assumptions: Coverage uses link type 999 and does not
+  alter or validate parser behavior. The test commit was already present at HEAD and
+  the cached `origin/roadmap/m2-pcap-boundaries` ref; live remote state has not been
+  verified because `git ls-remote` could not authenticate. Windows 11 behavior and
+  remaining M0 decisions remain unverified/TBD; this does not complete M2.
+- Next task: Continue M2 with one further focused correctness-boundary task only after
+  the review and publication state of this change is resolved; do not infer M2
+  completion from this entry.
+
+#### 2026-11-11 — Reject out-of-range classic pcap timestamp fractions
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Reject classic-PCAP record timestamp fractions outside the
+  resolution declared by the file magic. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Behavior changed: `PcapReader` raises `PcapError` for a microsecond fraction greater
+  than or equal to 1,000,000 or a nanosecond fraction greater than or equal to
+  1,000,000,000, before reading or yielding that record's payload. Fractions through
+  resolution minus one remain valid. Existing valid-record, empty-capture, and
+  truncated-capture behavior is retained.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    25 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 82 tests run, 0 failures,
+    18 skipped. Skips: 11 tests require pandas and scikit-learn, 4 require pandas,
+    and 3 require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: Focused regression tests exercise the upper valid fraction and the
+  exact rejected limit for microsecond and nanosecond files in both byte orders. The
+  rejection tests also verify a preceding valid record is yielded and the invalid record
+  raises rather than being yielded.
+- Review findings: PacketLens Reviewer inspected the supplied patch text and the current
+  `packetlens/pcap.py`, `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap
+  entry; reported no actionable findings and did not run tests. Reviewer could not
+  independently verify the Git diff; the coordinator inspected the actual diff.
+- Remaining risks or unverified assumptions: The timestamp API still returns a Python
+  float, whose representation may not preserve nanosecond precision; this task validates
+  fraction bounds only. This does not complete M2. Windows 11 behavior and remaining M0
+  decisions remain unverified/TBD.
+- Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
+  M2 completion from this entry.
+
+#### 2026-11-11 — Validate classic-PCAP global-header version
+- Milestone/status: M2 — IN PROGRESS; this is one bounded correctness-boundary fix, not
+  completion of the milestone.
+- Goal and files changed: Accept only classic-PCAP global-header version 2.4 and reject
+  unsupported major/minor values before record reads. Changed `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and `PRODUCTION_ROADMAP.md`.
+- Behavior changed: `PcapReader` raises `PcapError` for any version other than 2.4
+  after reading the 24-byte global header and before reading records. Version 2.4
+  remains valid. The check applies in either byte order; `PcapWriter` continues to emit
+  version 2.4.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    27 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 84 tests run, 0 failures,
+    18 skipped. Skips: 11 require pandas and scikit-learn, 4 require pandas, and 3
+    require torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: Focused tests accept 2.4 in both byte orders and reject unsupported
+  major and minor versions in both byte orders. A tracking stream verifies rejected
+  headers trigger only a 24-byte read, not a record read. README documents the supported
+  version and rejection behavior.
+- Review findings: PacketLens Reviewer inspected `packetlens/pcap.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and the relevant roadmap sections;
+  reported no actionable code or test findings and did not run tests. Reviewer could
+  not independently compare the Git diff; the coordinator inspected the actual diff.
+- Remaining risks or unverified assumptions: This deliberately rejects classic-PCAP
+  versions other than 2.4, even if a future supported format requires them. This does
+  not complete M2. Windows 11 behavior and the M0 maintainer decisions and TBDs remain
+  unverified and unchanged.
+- Next task: Continue with one other bounded M2 correctness-boundary task; do not infer
+  M2 completion.
+
+#### 2026-11-12 — Clarify classic pcap zero-snaplen behavior
+- Milestone/status: M2 — IN PROGRESS; this is a documentation and test clarification,
+  not completion of the milestone.
+- Goal and files changed: Clarify zero-snaplen reader and PacketLens writer behavior,
+  and verify the writer's emitted header field. Changed `README.md`,
+  `tests/test_pcap_and_parsers.py`, and this roadmap.
+- Behavior changed: README states that reader snaplen zero imposes no captured-length
+  bound and distinguishes PacketLens's `PcapWriter(snaplen=0)` behavior: it writes zero
+  in the global header and does not truncate nonempty packet data. The test asserts the
+  header value and round-trips a nonempty packet.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p 'test_pcap_and_parsers.py' -v` — exit 0;
+    27 tests run, all passed, 0 skipped.
+  - `python -m unittest discover -s tests -v` — exit 0; 84 tests run, 0 failures,
+    18 skipped: 11 require pandas and scikit-learn, 4 require pandas, and 3 require
+    torch and `tsfm_public`.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: The
+  [libpcap savefile documentation](https://www.tcpdump.org/manpages/pcap-savefile.5.html)
+  defines snaplen zero as no captured-length limit. The focused regression verifies
+  PacketLens's writer emits zero in the header and round-trips a nonempty payload.
+- Review status: Pending. PacketLens Reviewer was invoked twice but could not access
+  the actual Git diff and made no findings; no independent review result is claimed.
+- Remaining risks or unverified assumptions: The writer's zero-snaplen behavior is
+  PacketLens-specific; this task does not validate other PCAP formats or boundaries,
+  Windows 11 behavior, or any of the M0 maintainer decisions/TBDs.
+- Next task: Resolve independent review of this change before selecting another M2 task;
+  do not infer M2 completion.
 
 ### Progress-entry template
 

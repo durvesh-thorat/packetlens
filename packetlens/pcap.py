@@ -29,11 +29,16 @@ class PcapReader:
         try:
             head = self._f.read(24)
             self._check(head)
+            self._endian, self._res = _MAGIC[head[:4]]
+            fields = struct.unpack(self._endian + "4sHHiIII", head)
+            if fields[1:3] != (2, 4):
+                raise PcapError(
+                    f"unsupported classic pcap version {fields[1]}.{fields[2]}; "
+                    "expected 2.4"
+                )
         except PcapError:
             self._f.close()
             raise
-        self._endian, self._res = _MAGIC[head[:4]]
-        fields = struct.unpack(self._endian + "4sHHiIII", head)
         self.snaplen, self.linktype = fields[5], fields[6]
 
     @staticmethod
@@ -49,12 +54,27 @@ class PcapReader:
         read = self._f.read
         while True:
             h = read(16)
+            if not h:
+                return
             if len(h) < 16:
-                return
-            sec, frac, incl, _orig = rec.unpack(h)
+                raise PcapError("truncated pcap record header")
+            sec, frac, incl, orig = rec.unpack(h)
+            if frac >= self._res:
+                raise PcapError(
+                    f"pcap timestamp fraction {frac} is outside declared resolution "
+                    f"{self._res:g}"
+                )
+            if incl > orig:
+                raise PcapError(
+                    f"pcap captured length {incl} exceeds original length {orig}"
+                )
+            if self.snaplen and incl > self.snaplen:
+                raise PcapError(
+                    f"pcap captured length {incl} exceeds snaplen {self.snaplen}"
+                )
             data = read(incl)
-            if len(data) < incl:      # truncated file: stop cleanly
-                return
+            if len(data) < incl:
+                raise PcapError("truncated pcap packet data")
             yield sec + frac / self._res, data
 
     def close(self):
@@ -72,9 +92,14 @@ class PcapWriter:
 
     def __init__(self, path, linktype=1, snaplen=65535):
         self._f = open(path, "wb")
+        self.snaplen = snaplen
         self._f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, snaplen, linktype))
 
     def write(self, ts, data):
+        if self.snaplen and len(data) > self.snaplen:
+            raise PcapError(
+                f"pcap packet length {len(data)} exceeds snaplen {self.snaplen}"
+            )
         sec = int(ts)
         usec = int(round((ts - sec) * 1e6))
         if usec >= 1_000_000:
