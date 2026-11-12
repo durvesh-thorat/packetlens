@@ -9,6 +9,8 @@ The magic number tells us the byte order AND whether ts_frac is micro- or nanose
 """
 import struct
 
+from .parsers import SUPPORTED_LINKTYPES
+
 _MAGIC = {
     b"\xd4\xc3\xb2\xa1": ("<", 1e6),   # little-endian, microseconds
     b"\xa1\xb2\xc3\xd4": (">", 1e6),   # big-endian, microseconds
@@ -40,6 +42,10 @@ class PcapReader:
             self._f.close()
             raise
         self.snaplen, self.linktype = fields[5], fields[6]
+        if self.linktype not in SUPPORTED_LINKTYPES:
+            raise PcapError(
+                f"Unsupported link type {self.linktype}. Supported: Ethernet (1) and Linux cooked (113)."
+            )
 
     @staticmethod
     def _check(head):
@@ -91,6 +97,10 @@ class PcapWriter:
     """Writes little-endian, microsecond pcap files that Wireshark opens directly."""
 
     def __init__(self, path, linktype=1, snaplen=65535):
+        if linktype not in SUPPORTED_LINKTYPES:
+            raise PcapError(
+                f"Unsupported link type {linktype}. Supported: Ethernet (1) and Linux cooked (113)."
+            )
         self._f = open(path, "wb")
         self.snaplen = snaplen
         self._f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, snaplen, linktype))
