@@ -1,5 +1,6 @@
 __pycache__/
 *.pcap
+hf_pcaps/
 *.db
 *.db-wal
 *.db-shm
@@ -9,5 +10,4 @@ cicids2017_traffic_label/
 *.csv
 temp.py
 results/*.pcap
-review/
 review/

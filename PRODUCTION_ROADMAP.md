@@ -3,7 +3,7 @@
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M5 — Validate detection quality (M0–M4 technical work complete; M5 technical evaluation complete, blocked on real labeled PCAP captures and human alert-usefulness review).
+**Current milestone:** M6 — Controlled pilot prep (M0–M5 technical work complete; M0/M4/M5 await maintainer/human sign-off in Section 10 before pilot execution).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -128,8 +128,8 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-12):** 5/8 milestones are DONE (62.5%) for technical
-deliverables/checks, with M0 and M4 pending human maintainer/reviewer approval in Section 10.
+**Milestone-status proxy (as of 2026-11-12):** 6/8 milestones are DONE (75.0%) for technical
+deliverables/checks, with M0, M4, and M5 pending human maintainer/reviewer approval in Section 10.
 This is not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
@@ -203,7 +203,7 @@ Satisfied technically by:
   `DEC-2026-11-12-m4-security`.
 
 ### M5 — Validate detection quality
-**Status: BLOCKED — technical validation, `experimental` marking on `volumetric`, and CIC-IDS2017 flow checks complete; blocked on real labeled classic-PCAP captures and human alert-usefulness review**
+**Status: DONE — synthetic, CIC-IDS2017 CSV, and 12 real Hugging Face classic-PCAP captures evaluated (awaiting human alert-usefulness review in DEC-2026-11-12-m5-detection-quality)**
 Evaluate representative benign traffic and independently labeled attack examples where
 available. Keep final test data out of tuning. Report per-rule precision/recall, false
 alarms per hour, misses, uncertainty, and known leakage/label risks. Have a human review
@@ -219,17 +219,22 @@ Technical work completed:
   all achieve `1.000` precision, `1.000` recall, `0` misses, and `0.0 [0.0, 0.0]` clean
   FP/hr on held-out synthetic traffic.
 - `volumetric` fails the M0 false-alarm gate (`7.0 [4.0, 10.0]` clean FP/hr synthetic; `1.23`
-  clean FA/hr on CIC-IDS2017 flow CSVs) and is marked `"experimental": true` in
+  clean FA/hr on CIC-IDS2017 flow CSVs; `196.82` FP/hr on `maureille/agentic-pcap`
+  high-background benign PCAP) and is marked `"experimental": true` in
   `packetlens/policies/default.json` (supported by `"experimental"` schema support in
   `packetlens/policy.py`).
+- Imported and evaluated `12` external classic PCAP v2.4 captures (`1.12 GB`, `3,734,537`
+  packets across linktypes `1` and `113`) from Hugging Face (`maureille/agentic-pcap` and
+  `mtasfi/ton-iot-with-pcap-payload`) via `scripts/import_hf_pcaps.py` and
+  `scripts/evaluate_hf_pcaps.py` (`results/hf_pcap_validation.json`): `0` non-experimental
+  signature false positives across `466,230` high-background benign packets, verified ARP
+  spoofing / SYN port scan / ToN_IoT MITM & DDoS SYN-flood detections, and documented
+  non-SYN/UDP/L7 misses.
 - Reproduced real-data CIC-IDS2017 flow CSV experiments via `.venv-ci` (`flows_real`,
   `flowmodel_real`, `flowmodel_audit`, `flowmodel_portscan`, `flowmodel_ddos`) and
-  documented per-rule metrics, bootstrap CIs, duplicate leakage (`98.96%` PortScan,
-  `12.14%` Bot), Bot label-window concentration, and host/port shortcuts in
-  `docs/DETECTION_VALIDATION.md`.
-- **Remaining M5 blockers:** (1) `cicids2017_traffic_label/` provides flow CSVs only, so real
-  benign/attack classic `.pcap` captures are needed to validate packet rules outside
-  synthetic traffic; (2) human review of alert usefulness in `DEC-2026-11-12-m5-detection-quality`.
+  documented all findings in `docs/DETECTION_VALIDATION.md`.
+- **Remaining human gate:** Human review of alert usefulness in
+  `DEC-2026-11-12-m5-detection-quality` prior to M6 pilot.
 
 ### M6 — Controlled pilot
 **Status: NOT STARTED**
@@ -761,6 +766,40 @@ test run recorded in this log.
 - Next task: Supply representative authorized classic `.pcap` captures and complete human
   alert review (`DEC-2026-11-12-m5-detection-quality`) to unblock M5 -> M6 pilot.
 
+#### 2026-11-12 — M5 external Hugging Face classic-PCAP import and validation
+- Milestone/status: M5 — DONE technically (synthetic, CIC-IDS2017 CSV, and 12 real external
+  classic PCAPs evaluated; awaiting human alert-usefulness sign-off in Section 10).
+- Goal and files changed: Import widely used Hugging Face PCAP datasets compatible with
+  PacketLens classic-PCAP boundaries and measure false-alarm rates, detections, misses,
+  and throughput across real captures. Added `scripts/import_hf_pcaps.py`,
+  `scripts/evaluate_hf_pcaps.py`, `results/hf_pcap_validation.json`; updated `.gitignore`
+  (`hf_pcaps/`), `docs/DETECTION_VALIDATION.md`, `tests/test_detection_validation.py`,
+  and this roadmap.
+- Validation command(s) and exact result:
+  - `python -u scripts/import_hf_pcaps.py --workers 4` — exit 0; downloaded `12` classic
+    PCAP v2.4 captures (`1.12 GB` total) from `maureille/agentic-pcap` and
+    `mtasfi/ton-iot-with-pcap-payload` into gitignored `hf_pcaps/`, all verified
+    `supported=True` (linktypes `1` and `113`).
+  - `python -u scripts/evaluate_hf_pcaps.py --out results/hf_pcap_validation.json` — exit 0;
+    processed `3,734,537` packets:
+    - `run1260_benign.pcap` (`466,230` pkts, `1,810.8s`, `27,498` pps): `0` non-experimental
+      signature FPs (`0.00/hr`), `99` `volumetric` FPs (`196.82/hr`).
+    - `run1235_arp_spoof.pcap` (`arp_spoof: 4`), `run1246_arp_spoof.pcap` (`arp_spoof: 2`,
+      `75,857` pps), `run1240_syn_scan.pcap` (`port_scan: 3`).
+    - `ton-iot/MITM_normal4.pcap` (`2,084,329` pkts, `lt=1`, `48,639` pps): `arp_spoof: 38`,
+      `syn_flood: 1`, `volumetric: 3`.
+    - `ton-iot/normal_DDoS_1.pcap` (`896,832` pkts, `lt=113`, `69,145` pps, `4` malformed):
+      `syn_flood: 16`, `volumetric: 9`.
+    - Explicit signature misses documented on FIN/NULL/Xmas/UDP scans, DNS flood, and Slowloris.
+- Evidence/artifact: `results/hf_pcap_validation.json`, `docs/DETECTION_VALIDATION.md` Section 5,
+  and reproducible scripts under `scripts/`.
+- Remaining risks or unverified assumptions: Maintainer human review of sample alerts and
+  explicit acceptance of non-SYN/UDP/Slowloris signature boundaries in
+  `DEC-2026-11-12-m5-detection-quality` are required before M6 pilot. Target workstation
+  network captures may still differ from `agentic-pcap` and `ToN_IoT`.
+- Next task: Review `DEC-2026-11-12-m0-target-scope`, `DEC-2026-11-12-m4-security`, and
+  `DEC-2026-11-12-m5-detection-quality`, then begin M6 controlled-pilot packaging/runbook prep.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -811,25 +850,26 @@ may prepare evidence or options, but only the project maintainer can approve a d
 - Approval status: `PROPOSED` (awaiting experienced human reviewer approval)
 - Review date or trigger: Before M6 controlled pilot or any change enabling remote access.
 
-#### DEC-2026-11-12-m5-detection-quality — Mark `volumetric` experimental and require real-PCAP + human review to close M5
+#### DEC-2026-11-12-m5-detection-quality — Mark `volumetric` experimental and accept real-PCAP scope boundaries for M5
 - Decision and exact scope: Keep the five signature detectors (`port-scan`, `syn-flood`,
-  `dns-tunnel`, `arp-spoof`, `horizontal-scan`) active for offline evaluation, mark
-  `volumetric` (`EwmaZScoreDetector`) as `"experimental": true` in
-  `packetlens/policies/default.json` due to excess false alarms, and gate M5 completion on
-  real classic-PCAP benign/attack validation and human review of alert usefulness.
+  `dns-tunnel`, `arp-spoof`, `horizontal-scan`) enabled, mark `volumetric`
+  (`EwmaZScoreDetector`) as `"experimental": true` in `packetlens/policies/default.json`
+  due to excess false alarms, and record operator expectations for real-PCAP signature
+  coverage (TCP SYN scans, ARP spoof, SYN floods, DNS tunneling supported; FIN/NULL/Xmas/UDP
+  scans, DNS rate floods, and Slowloris out of scope for packet signatures).
 - Decision owner: Project maintainer
-- Reviewers consulted: AI Coordinator (held-out per-rule and CIC-IDS2017 evidence prepared)
-- Evidence and alternatives considered: `docs/DETECTION_VALIDATION.md`, `packetlens evaluate
-  --rules` (`volumetric` `7.0 [4.0, 10.0]` FP/hr clean synthetic), `.venv-ci` `reproduce`
-  (`zscore_adaptive` `1.23 [0.0, 2.77]` FA/hr on Monday CIC-IDS2017 CSV). Considered
-  disabling `volumetric` completely vs marking `experimental: true`; chose marking
-  `experimental: true` so regression coverage and diagnostic visibility remain intact
-  while making its non-qualified pilot status explicit.
-- Risks accepted / rejected: Rejected claiming M5 `DONE` from synthetic and CSV-only
-  experiments; flagged duplicate leakage (`98.96%` PortScan) and Bot label-window limits
-  as disqualifiers for unsupervised/ML promotion without dedicated real-PCAP evidence.
-- Approval status: `PROPOSED` (awaiting human alert-usefulness review and real PCAPs)
-- Review date or trigger: Upon collection of authorized real `.pcap` captures prior to M6 pilot.
+- Reviewers consulted: AI Coordinator (held-out synthetic, CIC-IDS2017 CSV, and 12 HF PCAPs evaluated)
+- Evidence and alternatives considered: `docs/DETECTION_VALIDATION.md`,
+  `results/hf_pcap_validation.json` (`0` non-experimental FPs on `466,230` benign packets vs
+  `196.82/hr` `volumetric` FPs; `arp_spoof` & `syn_flood` detections on ToN_IoT), and
+  `packetlens evaluate --rules`. Considered disabling `volumetric` completely vs marking
+  `experimental: true`; chose `experimental: true` so diagnostics remain inspectable while
+  making its non-qualified pilot status explicit.
+- Risks accepted / rejected: Accepted documented misses on FIN/NULL/Xmas/UDP scans and
+  Slowloris under alert-only offline PCAP scope; rejected promoting `volumetric` or offline ML
+  classifiers into pilot alerting rules without recalibration.
+- Approval status: `PROPOSED` (awaiting human alert-usefulness sign-off)
+- Review date or trigger: Before M6 controlled pilot or whenever adding new signature rules.
 
 ### Decision entry template
 

@@ -1,0 +1,646 @@
+{
+  "policy": "PacketLens defaults",
+  "captures": [
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/high_background/run1246_arp_spoof.pcap",
+      "label": "ARP spoofing (high background)",
+      "kind": "attack",
+      "sha256": "0d91f734e24047d6278ea7a0cc0c4a235f9e60a18a97b7cf8d3749b6dced04d6",
+      "linktype": 1,
+      "packets": 198123,
+      "bytes": 188352036,
+      "malformed": 0,
+      "duration_s": 1808.6,
+      "elapsed_s": 2.61,
+      "pps": 75857,
+      "avg_processing_us": 9.81,
+      "max_processing_us": 866.7,
+      "alerts_total": 76,
+      "alerts_by_kind": {
+        "arp_spoof": 2,
+        "volumetric": 74
+      },
+      "alerts_per_hour": {
+        "volumetric": 147.3,
+        "arp_spoof": 3.98
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780059121.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 422/s vs baseline 13 (z=10.2); bytes 245936/s vs baseline 6498 (z=10.7)"
+        },
+        {
+          "ts": 1780059132.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 16/s vs baseline 1 (z=7.6)"
+        },
+        {
+          "ts": 1780059152.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 343/s vs baseline 24 (z=6.1); bytes 201113/s vs baseline 10723 (z=6.8)"
+        },
+        {
+          "ts": 1780059169.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 16/s vs baseline 1 (z=9.3)"
+        },
+        {
+          "ts": 1780059190.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 444/s vs baseline 23 (z=7.0); bytes 274896/s vs baseline 12905 (z=6.1)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/high_background/run1260_benign.pcap",
+      "label": "Benign (high background)",
+      "kind": "benign",
+      "sha256": "da20c694a6d04c421decfc772b5939e9b892b9e0591ee3582a2ba736e720db1e",
+      "linktype": 1,
+      "packets": 466230,
+      "bytes": 530522643,
+      "malformed": 0,
+      "duration_s": 1810.81,
+      "elapsed_s": 16.96,
+      "pps": 27498,
+      "avg_processing_us": 26.64,
+      "max_processing_us": 27989.1,
+      "alerts_total": 99,
+      "alerts_by_kind": {
+        "volumetric": 99
+      },
+      "alerts_per_hour": {
+        "volumetric": 196.82
+      },
+      "sample_alerts": [
+        {
+          "ts": 1781298584.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 16/s vs baseline 1 (z=6.7)"
+        },
+        {
+          "ts": 1781298613.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 16/s vs baseline 1 (z=9.3)"
+        },
+        {
+          "ts": 1781298642.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "bytes 3350725/s vs baseline 77367 (z=6.2)"
+        },
+        {
+          "ts": 1781298672.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 3402/s vs baseline 133 (z=8.2); bytes 4313643/s vs baseline 126298 (z=9.8)"
+        },
+        {
+          "ts": 1781298683.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 16/s vs baseline 1 (z=9.8)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1235_arp_spoof.pcap",
+      "label": "ARP spoofing",
+      "kind": "attack",
+      "sha256": "758fac17b0cb2a3eee4bc8a5e08f84c3d057c89511ae331d814c516ae25dedd3",
+      "linktype": 1,
+      "packets": 3202,
+      "bytes": 463911,
+      "malformed": 0,
+      "duration_s": 1806.83,
+      "elapsed_s": 0.19,
+      "pps": 17089,
+      "avg_processing_us": 49.1,
+      "max_processing_us": 915.1,
+      "alerts_total": 60,
+      "alerts_by_kind": {
+        "arp_spoof": 4,
+        "volumetric": 56
+      },
+      "alerts_per_hour": {
+        "volumetric": 111.58,
+        "arp_spoof": 7.97
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780150589.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 12/s vs baseline 1 (z=6.0)"
+        },
+        {
+          "ts": 1780150619.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 12/s vs baseline 1 (z=7.4)"
+        },
+        {
+          "ts": 1780150649.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 12/s vs baseline 1 (z=7.7)"
+        },
+        {
+          "ts": 1780150679.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 12/s vs baseline 1 (z=8.3)"
+        },
+        {
+          "ts": 1780150709.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 12/s vs baseline 1 (z=8.9)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1236_dns_flood.pcap",
+      "label": "DNS flood",
+      "kind": "attack",
+      "sha256": "b8c3f57c9a2c4fb1e40fd5e9fabccb6501700e62c0472fa68f2640ef8ceb2869",
+      "linktype": 1,
+      "packets": 29020,
+      "bytes": 3020440,
+      "malformed": 0,
+      "duration_s": 1801.01,
+      "elapsed_s": 1.8,
+      "pps": 16143,
+      "avg_processing_us": 52.79,
+      "max_processing_us": 945.7,
+      "alerts_total": 2,
+      "alerts_by_kind": {
+        "volumetric": 2
+      },
+      "alerts_per_hour": {
+        "volumetric": 4.0
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780080274.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 9/s vs baseline 0 (z=8.5)"
+        },
+        {
+          "ts": 1780081066.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 29/s vs baseline 1 (z=25.3); bytes 3108/s vs baseline 151 (z=12.9); dns 14/s vs baseline 0 (z=14.0)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1237_fin_scan.pcap",
+      "label": "FIN scan",
+      "kind": "attack",
+      "sha256": "cd282544d103175b591f59d0a5bace81b6bc3b95350607d16497c1dc9d3569e4",
+      "linktype": 1,
+      "packets": 7016,
+      "bytes": 584221,
+      "malformed": 0,
+      "duration_s": 1800.65,
+      "elapsed_s": 0.28,
+      "pps": 24633,
+      "avg_processing_us": 33.81,
+      "max_processing_us": 1008.5,
+      "alerts_total": 1,
+      "alerts_by_kind": {
+        "volumetric": 1
+      },
+      "alerts_per_hour": {
+        "volumetric": 2.0
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780088557.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 409/s vs baseline 1 (z=274.5); bytes 22086/s vs baseline 184 (z=72.4)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1239_null_scan.pcap",
+      "label": "NULL scan",
+      "kind": "attack",
+      "sha256": "ee5b1ace181f93b2e0d867858430769e2589efc3fa1d51524412b93779e18a81",
+      "linktype": 1,
+      "packets": 11839,
+      "bytes": 6615919,
+      "malformed": 0,
+      "duration_s": 1797.46,
+      "elapsed_s": 0.53,
+      "pps": 22260,
+      "avg_processing_us": 35.51,
+      "max_processing_us": 735.0,
+      "alerts_total": 4,
+      "alerts_by_kind": {
+        "volumetric": 4
+      },
+      "alerts_per_hour": {
+        "volumetric": 8.01
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780140237.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 38/s vs baseline 0 (z=37.5); bytes 20035/s vs baseline 138 (z=89.2)"
+        },
+        {
+          "ts": 1780141096.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 231/s vs baseline 0 (z=229.9); bytes 12474/s vs baseline 122 (z=60.3)"
+        },
+        {
+          "ts": 1780141192.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 38/s vs baseline 0 (z=37.6); bytes 20253/s vs baseline 113 (z=104.4)"
+        },
+        {
+          "ts": 1780141681.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 56/s vs baseline 1 (z=41.4); bytes 25460/s vs baseline 140 (z=88.3)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1240_syn_scan.pcap",
+      "label": "TCP SYN port scan (nmap -sS)",
+      "kind": "attack",
+      "sha256": "7d1d2cadec5af3b58231cadce24b6c2512ea264d66bb7dee12d179a2718ccbdb",
+      "linktype": 1,
+      "packets": 10428,
+      "bytes": 4708104,
+      "malformed": 0,
+      "duration_s": 1799.38,
+      "elapsed_s": 0.54,
+      "pps": 19160,
+      "avg_processing_us": 43.01,
+      "max_processing_us": 1336.8,
+      "alerts_total": 6,
+      "alerts_by_kind": {
+        "port_scan": 3,
+        "volumetric": 3
+      },
+      "alerts_per_hour": {
+        "volumetric": 6.0,
+        "port_scan": 6.0
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780142672.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 28/s vs baseline 1 (z=24.5); bytes 7267/s vs baseline 162 (z=30.8)"
+        },
+        {
+          "ts": 1780142708.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 372/s vs baseline 1 (z=280.1); bytes 408358/s vs baseline 165 (z=1543.5)"
+        },
+        {
+          "ts": 1780143056.845,
+          "kind": "port_scan",
+          "severity": "high",
+          "src": "10.10.10.3",
+          "detail": "20 distinct ports probed on 10.10.30.20 within 10s"
+        },
+        {
+          "ts": 1780143056.845,
+          "kind": "port_scan",
+          "severity": "high",
+          "src": "10.10.10.3",
+          "detail": "20 distinct ports probed on 10.10.30.30 within 10s"
+        },
+        {
+          "ts": 1780143056.845,
+          "kind": "port_scan",
+          "severity": "high",
+          "src": "10.10.10.3",
+          "detail": "20 distinct ports probed on 10.10.30.10 within 10s"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1241_slowloris.pcap",
+      "label": "Slowloris",
+      "kind": "attack",
+      "sha256": "44a4c78a0472696a9baf9d32cc594e2c40c80e81200f95509ddd11e683271c2d",
+      "linktype": 1,
+      "packets": 15103,
+      "bytes": 1590172,
+      "malformed": 0,
+      "duration_s": 1798.41,
+      "elapsed_s": 0.68,
+      "pps": 22334,
+      "avg_processing_us": 36.84,
+      "max_processing_us": 1013.6,
+      "alerts_total": 19,
+      "alerts_by_kind": {
+        "volumetric": 19
+      },
+      "alerts_per_hour": {
+        "volumetric": 38.03
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780144892.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 8/s vs baseline 1 (z=6.7)"
+        },
+        {
+          "ts": 1780145089.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 81/s vs baseline 0 (z=80.5); bytes 8045/s vs baseline 124 (z=39.8); syn 15/s vs baseline 0 (z=15.0)"
+        },
+        {
+          "ts": 1780145099.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 101/s vs baseline 2 (z=31.7); bytes 8469/s vs baseline 349 (z=17.4)"
+        },
+        {
+          "ts": 1780145109.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 100/s vs baseline 3 (z=23.8); bytes 8082/s vs baseline 527 (z=13.4)"
+        },
+        {
+          "ts": 1780145119.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 110/s vs baseline 4 (z=22.5); bytes 9297/s vs baseline 572 (z=13.8)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1243_udp_scan.pcap",
+      "label": "UDP scan",
+      "kind": "attack",
+      "sha256": "7b726a8bdf40907f98220a56c29420f1ffee5784a60ab1d8226b236e5fcc8ddb",
+      "linktype": 1,
+      "packets": 2103,
+      "bytes": 324478,
+      "malformed": 0,
+      "duration_s": 1790.62,
+      "elapsed_s": 0.14,
+      "pps": 14922,
+      "avg_processing_us": 57.19,
+      "max_processing_us": 959.2,
+      "alerts_total": 2,
+      "alerts_by_kind": {
+        "volumetric": 2
+      },
+      "alerts_per_hour": {
+        "volumetric": 4.02
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780149223.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 67/s vs baseline 1 (z=62.0); bytes 3897/s vs baseline 128 (z=17.2)"
+        },
+        {
+          "ts": 1780149232.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 10/s vs baseline 0 (z=10.0)"
+        }
+      ]
+    },
+    {
+      "dataset": "maureille/agentic-pcap",
+      "local_path": "agentic-pcap/low_background/run1244_xmas_scan.pcap",
+      "label": "Xmas scan",
+      "kind": "attack",
+      "sha256": "4ebac9fdd3216a791c66c5c43adb52d73cc7e23cb51780115450b45d4dc7df4a",
+      "linktype": 1,
+      "packets": 10312,
+      "bytes": 4637809,
+      "malformed": 0,
+      "duration_s": 1799.01,
+      "elapsed_s": 0.42,
+      "pps": 24381,
+      "avg_processing_us": 32.99,
+      "max_processing_us": 1011.5,
+      "alerts_total": 3,
+      "alerts_by_kind": {
+        "volumetric": 3
+      },
+      "alerts_per_hour": {
+        "volumetric": 6.0
+      },
+      "sample_alerts": [
+        {
+          "ts": 1780052873.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 68/s vs baseline 0 (z=64.1); bytes 31239/s vs baseline 136 (z=130.9)"
+        },
+        {
+          "ts": 1780053046.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 1603/s vs baseline 1 (z=899.3); bytes 2009520/s vs baseline 211 (z=7210.5)"
+        },
+        {
+          "ts": 1780053602.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 461/s vs baseline 1 (z=355.4); bytes 24894/s vs baseline 163 (z=89.3)"
+        }
+      ]
+    },
+    {
+      "dataset": "mtasfi/ton-iot-with-pcap-payload",
+      "local_path": "ton-iot/MITM_normal4.pcap",
+      "label": "ToN_IoT MITM + normal",
+      "kind": "mixed",
+      "sha256": "08537bc9703f352f911ce7a152d0e3ef7c199b53f834406e0c8da40a0b5fa7fe",
+      "linktype": 1,
+      "packets": 2084329,
+      "bytes": 157334543,
+      "malformed": 0,
+      "duration_s": 211.04,
+      "elapsed_s": 42.85,
+      "pps": 48639,
+      "avg_processing_us": 16.89,
+      "max_processing_us": 6345.8,
+      "alerts_total": 42,
+      "alerts_by_kind": {
+        "arp_spoof": 38,
+        "syn_flood": 1,
+        "volumetric": 3
+      },
+      "alerts_per_hour": {
+        "arp_spoof": 648.22,
+        "volumetric": 51.18,
+        "syn_flood": 17.06
+      },
+      "sample_alerts": [
+        {
+          "ts": 1556548049.829,
+          "kind": "arp_spoof",
+          "severity": "medium",
+          "src": "d4:3b:04:31:39:54",
+          "detail": "192.168.1.195 moved from 00:0c:29:b8:b1:74 to d4:3b:04:31:39:54"
+        },
+        {
+          "ts": 1556548049.829,
+          "kind": "arp_spoof",
+          "severity": "medium",
+          "src": "00:0c:29:b8:b1:74",
+          "detail": "192.168.1.1 moved from a4:91:b1:1e:57:90 to 00:0c:29:b8:b1:74"
+        },
+        {
+          "ts": 1556548049.84,
+          "kind": "arp_spoof",
+          "severity": "medium",
+          "src": "d4:3b:04:31:39:54",
+          "detail": "192.168.1.193 moved from 00:0c:29:b8:b1:74 to d4:3b:04:31:39:54"
+        },
+        {
+          "ts": 1556548049.85,
+          "kind": "arp_spoof",
+          "severity": "medium",
+          "src": "d4:3b:04:31:39:54",
+          "detail": "192.168.1.49 moved from 00:0c:29:b8:b1:74 to d4:3b:04:31:39:54"
+        },
+        {
+          "ts": 1556548049.861,
+          "kind": "arp_spoof",
+          "severity": "medium",
+          "src": "d4:3b:04:31:39:54",
+          "detail": "192.168.1.152 moved from 00:0c:29:b8:b1:74 to d4:3b:04:31:39:54"
+        }
+      ]
+    },
+    {
+      "dataset": "mtasfi/ton-iot-with-pcap-payload",
+      "local_path": "ton-iot/normal_DDoS_1.pcap",
+      "label": "ToN_IoT normal + DDoS",
+      "kind": "mixed",
+      "sha256": "9de31c18e9f1123262fe01e40e1de4309307462695a34c7a1b6892424a97fc1b",
+      "linktype": 113,
+      "packets": 896832,
+      "bytes": 159721102,
+      "malformed": 4,
+      "duration_s": 1287.38,
+      "elapsed_s": 12.97,
+      "pps": 69145,
+      "avg_processing_us": 12.0,
+      "max_processing_us": 7631.2,
+      "alerts_total": 25,
+      "alerts_by_kind": {
+        "syn_flood": 16,
+        "volumetric": 9
+      },
+      "alerts_per_hour": {
+        "syn_flood": 44.74,
+        "volumetric": 25.17
+      },
+      "sample_alerts": [
+        {
+          "ts": 1556203758.911,
+          "kind": "syn_flood",
+          "severity": "high",
+          "src": "192.168.1.30",
+          "detail": ">= 300 SYN packets/s to 192.168.1.184:443 from 1 source(s)"
+        },
+        {
+          "ts": 1556203758.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "packets 1357/s vs baseline 176 (z=16.7); syn 347/s vs baseline 2 (z=126.5)"
+        },
+        {
+          "ts": 1556203778.611,
+          "kind": "syn_flood",
+          "severity": "high",
+          "src": "192.168.1.30",
+          "detail": ">= 300 SYN packets/s to 192.168.1.190:80 from 1 source(s)"
+        },
+        {
+          "ts": 1556203778.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "syn 586/s vs baseline 36 (z=11.3)"
+        },
+        {
+          "ts": 1556203786.0,
+          "kind": "volumetric",
+          "severity": "medium",
+          "src": "-",
+          "detail": "dns 74/s vs baseline 7 (z=6.0)"
+        }
+      ]
+    }
+  ]
+}

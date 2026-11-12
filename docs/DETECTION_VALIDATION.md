@@ -68,8 +68,43 @@ Both Z-score variants exceed `1.0` clean false alarm/hour on real Monday CIC-IDS
 
 ---
 
-## 5. Remaining Blockers Before Passing M5
+## 5. External Real/Benchmark Classic-PCAP Validation (Hugging Face)
 
-Per Section 5 M5 exit criteria (*"Synthetic evaluation alone does not pass this milestone"* and *"Have a human review alert usefulness"*):
-1. **No raw real-world labeled PCAPs in workspace:** `cicids2017_traffic_label/` contains flow CSVs only, not raw `.pcap` captures. Live packet rules (`port_scan`, `syn_flood`, `dns_tunnel`, `arp_spoof`, `horizontal_scan`) have **not** yet been run against real benign enterprise/workstation `.pcap` traffic to verify `<= 1.0` false alarm/hour on real non-synthetic packets.
-2. **Human alert-usefulness review:** A project maintainer / operator must inspect real-capture alerts and incidents and record approval in Section 10 (`DEC-2026-11-12-m5-detection-quality`) before advancing to M6 pilot deployment.
+To validate packet detectors outside PacketLens's own synthetic generator, `12` classic PCAP v2.4 captures (`1.12 GB`, `3,734,537` packets total across linktypes `1` Ethernet and `113` Linux cooked) were imported into gitignored `hf_pcaps/` using [`scripts/import_hf_pcaps.py`](../scripts/import_hf_pcaps.py) and evaluated using [`scripts/evaluate_hf_pcaps.py`](../scripts/evaluate_hf_pcaps.py) (`results/hf_pcap_validation.json`).
+
+**Datasets selected & compatibility screening:**
+- `mtasfi/ton-iot-with-pcap-payload` (`890` HF downloads; UNSW ToN_IoT benchmark) — verified classic PCAP v2.4 (`linktype=1` and `linktype=113`).
+- `maureille/agentic-pcap` (`568` HF downloads, CC-BY-4.0) — labeled attack + high-background benign classic PCAP v2.4 (`linktype=1`).
+- *Skipped:* `bvsam/cic-ids-2017` (`8.3–13.4 GB` files, `PCAPNG`), `Anonymous-Bear/dapt-2020-pcaps` (`PCAPNG`), and `agentic-pcap` `low_background/benign` (`PCAPNG`), since PacketLens supports classic PCAP v2.4 (`linktype` `1`/`113`) up to `2 GiB`.
+
+### 5.1 Capture-by-Capture Results
+
+| Source Dataset | Capture & Label | Linktype | Packets | Malformed | Duration (s) | Throughput (pps) | Signature Alerts Raised | Experimental `volumetric` Alerts |
+|---|---|---:|---:|---:|---:|---:|---|---:|
+| `maureille/agentic-pcap` | `run1260_benign.pcap` — Benign (high background) | 1 | 466,230 | 0 | 1,810.8 | 27,498 | **0 (`0.00/hr`)** | `99` (`196.82/hr`) |
+| `maureille/agentic-pcap` | `run1246_arp_spoof.pcap` — ARP spoofing (high bg) | 1 | 198,123 | 0 | 1,808.6 | 75,857 | **`arp_spoof: 2`** | `74` (`147.30/hr`) |
+| `maureille/agentic-pcap` | `run1235_arp_spoof.pcap` — ARP spoofing (low bg) | 1 | 3,202 | 0 | 1,806.8 | 17,089 | **`arp_spoof: 4`** | `56` (`111.58/hr`) |
+| `maureille/agentic-pcap` | `run1240_syn_scan.pcap` — TCP SYN port scan | 1 | 10,428 | 0 | 1,799.4 | 19,160 | **`port_scan: 3`** | `3` |
+| `maureille/agentic-pcap` | `run1236_dns_flood.pcap` — DNS flood | 1 | 29,020 | 0 | 1,801.0 | 16,143 | *Missed (`0`)* | `2` |
+| `maureille/agentic-pcap` | `run1237_fin_scan.pcap` — TCP FIN scan | 1 | 7,016 | 0 | 1,800.7 | 24,633 | *Missed (`0`)* | `1` |
+| `maureille/agentic-pcap` | `run1239_null_scan.pcap` — TCP NULL scan | 1 | 11,839 | 0 | 1,797.5 | 22,260 | *Missed (`0`)* | `4` |
+| `maureille/agentic-pcap` | `run1244_xmas_scan.pcap` — TCP Xmas scan | 1 | 10,312 | 0 | 1,799.0 | 24,381 | *Missed (`0`)* | `3` |
+| `maureille/agentic-pcap` | `run1243_udp_scan.pcap` — UDP scan | 1 | 2,103 | 0 | 1,790.6 | 14,922 | *Missed (`0`)* | `2` |
+| `maureille/agentic-pcap` | `run1241_slowloris.pcap` — Slowloris | 1 | 15,103 | 0 | 1,798.4 | 22,334 | *Missed (`0`)* | `19` |
+| `mtasfi/ton-iot-with-pcap-payload` | `MITM_normal4.pcap` — ToN_IoT MITM + normal | 1 | 2,084,329 | 0 | 211.0 | 48,639 | **`arp_spoof: 38`, `syn_flood: 1`** | `3` (`51.18/hr`) |
+| `mtasfi/ton-iot-with-pcap-payload` | `normal_DDoS_1.pcap` — ToN_IoT normal + DDoS | 113 | 896,832 | 4 | 1,287.4 | 69,145 | **`syn_flood: 16`** | `9` (`25.17/hr`) |
+
+### 5.2 Key Conclusions from External PCAP Runs
+- **Clean false-alarm discipline confirmed on high-background benign traffic:** Across `466,230` benign packets (~30.2 minutes of realistic multi-flow background in `run1260_benign.pcap`), all five non-experimental signature detectors produced **`0` false positives (`0.00/hr`)**, while experimental `volumetric` fired `99` alerts (`196.82/hr`).
+- **Real attack capability & Linux cooked (`linktype=113`) verified:** PacketLens detected ARP spoofing in both `agentic-pcap` (`low` + `high` background) and `ToN_IoT` `MITM_normal4.pcap` (`38` alerts across `2.08M` packets), TCP SYN port scanning in `run1240_syn_scan.pcap` (`3` alerts), and SYN/DDoS flooding (`16` alerts) inside `ToN_IoT` `normal_DDoS_1.pcap` (`linktype=113`, `69,145` pps).
+- **Documented detection blind spots (misses):**
+  - `PortScanDetector` matches TCP `SYN` packets only, so **FIN, NULL, Xmas, and UDP scans** are not detected.
+  - `DnsTunnelDetector` inspects subdomain length/entropy for exfiltration tunneling, so **high-rate DNS floods** are not detected by `dns_tunnel`.
+  - **Slowloris** and L7 application slow-connection attacks are outside packet-header signature coverage.
+
+---
+
+## 6. Remaining Human Gate Before Advancing to M6
+
+All M5 automated evaluation artifacts (held-out multi-seed synthetic, offline CIC-IDS2017 CSVs, and `12` external classic PCAP captures) are complete. One human gate remains:
+- **Human alert-usefulness review:** A project maintainer / operator must review sample alerts (e.g., `results/hf_pcap_validation.json`, local PCAP runs from `hf_pcaps/`, or pilot target network traces), confirm the non-coverage of FIN/NULL/Xmas/UDP scans and Slowloris is acceptable or add rules/sensors before pilot, and approve `DEC-2026-11-12-m5-detection-quality` in `PRODUCTION_ROADMAP.md`.
