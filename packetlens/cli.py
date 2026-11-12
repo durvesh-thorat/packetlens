@@ -124,8 +124,21 @@ def cmd_live(a):
 
 
 def cmd_evaluate(a):
-    from .evaluate import evaluate, print_report, save
+    from .evaluate import evaluate, evaluate_rules, print_report, print_rule_report, save
     from .provenance import build_meta
+    if a.rules:
+        r = evaluate_rules()
+        if a.json:
+            print(json.dumps(r, indent=2))
+        else:
+            print_rule_report(r)
+        if a.save:
+            r["meta"] = build_meta(
+                a.command_line,
+                seeds={"benign_seeds": r["benign_seeds"], "attack_seeds": r["attack_seeds"]},
+            )
+            save(r, a.save)
+        return
     r = evaluate(a.duration)
     print_report(r)
     if a.save:
@@ -268,6 +281,9 @@ def main(argv=None):
 
     s = sub.add_parser("evaluate", help="precision/recall on labelled synthetic traffic")
     s.add_argument("--duration", type=int, default=300)
+    s.add_argument("--rules", action="store_true",
+                   help="run held-out multi-seed per-rule evaluation against M0 targets")
+    s.add_argument("--json", action="store_true", help="print JSON output (with --rules)")
     s.add_argument("--save", help="write results as JSON")
     s.set_defaults(fn=cmd_evaluate)
 

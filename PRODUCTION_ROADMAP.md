@@ -3,7 +3,7 @@
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M5 — Validate detection quality (M0–M4 technical work complete; M0/M4 await maintainer/human sign-off in Section 10).
+**Current milestone:** M5 — Validate detection quality (M0–M4 technical work complete; M5 technical evaluation complete, blocked on real labeled PCAP captures and human alert-usefulness review).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -203,13 +203,33 @@ Satisfied technically by:
   `DEC-2026-11-12-m4-security`.
 
 ### M5 — Validate detection quality
-**Status: NOT STARTED**
+**Status: BLOCKED — technical validation, `experimental` marking on `volumetric`, and CIC-IDS2017 flow checks complete; blocked on real labeled classic-PCAP captures and human alert-usefulness review**
 Evaluate representative benign traffic and independently labeled attack examples where
 available. Keep final test data out of tuning. Report per-rule precision/recall, false
 alarms per hour, misses, uncertainty, and known leakage/label risks. Have a human review
 alert usefulness.
 **Exit:** Each enabled rule meets M0 targets for relevant evidence, or is disabled/marked
 experimental. Synthetic evaluation alone does not pass this milestone.
+
+Technical work completed:
+- Added held-out multi-seed per-rule evaluation (`evaluate_rules()`,
+  `packetlens evaluate --rules`) using disjoint seeds `101..106` (1.0h clean, 60 bins) and
+  `201..206` (42 attacks), plus circular block-bootstrap 95% CIs via `packetlens/stats.py`.
+- Signature rules (`port-scan`, `syn-flood`, `dns-tunnel`, `arp-spoof`, `horizontal-scan`)
+  all achieve `1.000` precision, `1.000` recall, `0` misses, and `0.0 [0.0, 0.0]` clean
+  FP/hr on held-out synthetic traffic.
+- `volumetric` fails the M0 false-alarm gate (`7.0 [4.0, 10.0]` clean FP/hr synthetic; `1.23`
+  clean FA/hr on CIC-IDS2017 flow CSVs) and is marked `"experimental": true` in
+  `packetlens/policies/default.json` (supported by `"experimental"` schema support in
+  `packetlens/policy.py`).
+- Reproduced real-data CIC-IDS2017 flow CSV experiments via `.venv-ci` (`flows_real`,
+  `flowmodel_real`, `flowmodel_audit`, `flowmodel_portscan`, `flowmodel_ddos`) and
+  documented per-rule metrics, bootstrap CIs, duplicate leakage (`98.96%` PortScan,
+  `12.14%` Bot), Bot label-window concentration, and host/port shortcuts in
+  `docs/DETECTION_VALIDATION.md`.
+- **Remaining M5 blockers:** (1) `cicids2017_traffic_label/` provides flow CSVs only, so real
+  benign/attack classic `.pcap` captures are needed to validate packet rules outside
+  synthetic traffic; (2) human review of alert usefulness in `DEC-2026-11-12-m5-detection-quality`.
 
 ### M6 — Controlled pilot
 **Status: NOT STARTED**
@@ -709,6 +729,38 @@ test run recorded in this log.
 - Next task: Start M5 (`roadmap/m5-detection-quality`) to validate detection quality on
   offline CIC-IDS2017 data and multi-seed synthetic traffic.
 
+#### 2026-11-12 — M5 per-rule validation, CIC-IDS2017 audit, and `volumetric` experimental marking
+- Milestone/status: M5 — BLOCKED (all offline technical evaluation, policy `experimental`
+  marking, and validation report complete; blocked on real classic-PCAP captures and
+  human alert-usefulness review).
+- Goal and files changed: Build held-out multi-seed per-rule evaluation with bootstrap CIs,
+  verify CIC-IDS2017 real flow CSV experiments, mark `volumetric` experimental per M5
+  exit rule, and document leakage/label/miss risks. Changed `packetlens/policy.py`,
+  `packetlens/policies/default.json`, `packetlens/evaluate.py`, `packetlens/cli.py`,
+  `tests/test_detection_validation.py`, `docs/DETECTION_VALIDATION.md`, and this roadmap.
+- Behavior changed:
+  - `packetlens/policy.py` validates optional boolean `"experimental"` property per rule;
+    `packetlens/policies/default.json` sets `"experimental": true` on `volumetric`.
+  - `packetlens/evaluate.py` adds `evaluate_rules()` and `print_rule_report()`, exposed as
+    `packetlens evaluate --rules [--json]` in `packetlens/cli.py`.
+- Validation command(s) and exact result:
+  - `python -m packetlens evaluate --rules` — exit 0; `port-scan`, `syn-flood`,
+    `dns-tunnel`, `arp-spoof`, `horizontal-scan` all `TP=6..12`, `FN=0`, `FP=0`,
+    `precision=1.0`, `recall=1.0`, `clean FP/hr=0.0 [0.0, 0.0]`; `volumetric`
+    (`experimental=True`) `TP=6`, `outside-win FP=6`, `precision=0.5`,
+    `clean FP/hr=7.0 [4.0, 10.0]`.
+  - `python -m unittest tests.test_detection_validation -v` — exit 0; 3/3 passed.
+  - `.venv-ci\Scripts\python.exe -m packetlens reproduce --data-dir cicids2017_traffic_label`
+    (dry-run) — exit 0; reproduced real CIC-IDS2017 `flows_real`, `flowmodel_real`,
+    `flowmodel_audit`, `flowmodel_portscan`, and `flowmodel_ddos` (`granite` skipped).
+- Evidence/artifact: `docs/DETECTION_VALIDATION.md`, `tests/test_detection_validation.py`,
+  and Section 10 `DEC-2026-11-12-m5-detection-quality`.
+- Remaining risks or unverified assumptions: Synthetic evaluation alone does not satisfy
+  M5. Real benign and attack classic `.pcap` traffic is not available in the workspace, and
+  human alert-usefulness review is still required before closing M5.
+- Next task: Supply representative authorized classic `.pcap` captures and complete human
+  alert review (`DEC-2026-11-12-m5-detection-quality`) to unblock M5 -> M6 pilot.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -758,6 +810,26 @@ may prepare evidence or options, but only the project maintainer can approve a d
   default, and inline report scripts.
 - Approval status: `PROPOSED` (awaiting experienced human reviewer approval)
 - Review date or trigger: Before M6 controlled pilot or any change enabling remote access.
+
+#### DEC-2026-11-12-m5-detection-quality — Mark `volumetric` experimental and require real-PCAP + human review to close M5
+- Decision and exact scope: Keep the five signature detectors (`port-scan`, `syn-flood`,
+  `dns-tunnel`, `arp-spoof`, `horizontal-scan`) active for offline evaluation, mark
+  `volumetric` (`EwmaZScoreDetector`) as `"experimental": true` in
+  `packetlens/policies/default.json` due to excess false alarms, and gate M5 completion on
+  real classic-PCAP benign/attack validation and human review of alert usefulness.
+- Decision owner: Project maintainer
+- Reviewers consulted: AI Coordinator (held-out per-rule and CIC-IDS2017 evidence prepared)
+- Evidence and alternatives considered: `docs/DETECTION_VALIDATION.md`, `packetlens evaluate
+  --rules` (`volumetric` `7.0 [4.0, 10.0]` FP/hr clean synthetic), `.venv-ci` `reproduce`
+  (`zscore_adaptive` `1.23 [0.0, 2.77]` FA/hr on Monday CIC-IDS2017 CSV). Considered
+  disabling `volumetric` completely vs marking `experimental: true`; chose marking
+  `experimental: true` so regression coverage and diagnostic visibility remain intact
+  while making its non-qualified pilot status explicit.
+- Risks accepted / rejected: Rejected claiming M5 `DONE` from synthetic and CSV-only
+  experiments; flagged duplicate leakage (`98.96%` PortScan) and Bot label-window limits
+  as disqualifiers for unsupervised/ML promotion without dedicated real-PCAP evidence.
+- Approval status: `PROPOSED` (awaiting human alert-usefulness review and real PCAPs)
+- Review date or trigger: Upon collection of authorized real `.pcap` captures prior to M6 pilot.
 
 ### Decision entry template
 

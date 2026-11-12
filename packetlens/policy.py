@@ -84,8 +84,8 @@ def validate_policy(value):
         if not isinstance(rule, dict):
             error(path, "must be an object")
             continue
-        allowed = {"id", "detector", "enabled", "severity", "action", "incident_gap_s", "params",
-                   "allowlist", "description"}
+        allowed = {"id", "detector", "enabled", "experimental", "severity", "action",
+                   "incident_gap_s", "params", "allowlist", "description"}
         for key in rule.keys() - allowed:
             error(f"{path}.{key}", "unknown property")
         for key in ("id", "detector", "enabled", "action"):
@@ -105,6 +105,8 @@ def validate_policy(value):
             error(f"{path}.detector", f"unknown detector {detector!r}")
         if "enabled" in rule and type(rule["enabled"]) is not bool:
             error(f"{path}.enabled", "must be a boolean")
+        if "experimental" in rule and type(rule["experimental"]) is not bool:
+            error(f"{path}.experimental", "must be a boolean")
         if ("severity" in rule and
                 (not isinstance(rule["severity"], str) or rule["severity"] not in SEVERITIES)):
             error(f"{path}.severity", f"must be one of {', '.join(sorted(SEVERITIES))}")
