@@ -134,6 +134,7 @@ def render_report(store, title="PacketLens Technical Report", policy=None):
     title_text = _escape(title)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'">
 <title>{title_text}</title>
 <style>
 @page{{margin:16mm}}*{{box-sizing:border-box}}body{{margin:0;color:#17212b;background:#fff;

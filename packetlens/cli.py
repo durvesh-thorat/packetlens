@@ -95,7 +95,7 @@ def cmd_serve(a):
                 yield ts, data, 1
         source_name = f"interface:{a.iface or 'default'}"
     serve(eng, source, a.host, a.port, store=store, source_name=source_name,
-          policy=policy, results_dir=a.results_dir)
+          policy=policy, results_dir=a.results_dir, allow_non_loopback=a.allow_remote)
 
 
 def cmd_report(a):
@@ -245,6 +245,8 @@ def main(argv=None):
     s.add_argument("--speed", type=float, default=1.0)
     s.add_argument("--loop", action="store_true")
     s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--allow-remote", action="store_true",
+                   help="allow binding without TLS to a non-loopback host (unsafe on untrusted networks)")
     s.add_argument("--port", type=int, default=8080)
     s.add_argument("--policy")
     s.add_argument("--db", default="packetlens.db")

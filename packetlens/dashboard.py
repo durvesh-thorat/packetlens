@@ -1,5 +1,6 @@
 """Loopback HTTP console for PacketLens."""
 import hmac
+import ipaddress
 import json
 import logging
 import math
@@ -77,7 +78,20 @@ MAX_BODY = 1024 * 1024
 MAX_OFFSET = 10_000_000
 SOURCE_STALE_AFTER_S = 10.0
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
-       "img-src 'self' data:; connect-src 'self'")
+       "img-src 'self' data:; connect-src 'self'; "
+       "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+
+
+def is_loopback_host(host):
+    """Return True if `host` refers exclusively to a loopback address."""
+    if not isinstance(host, str) or not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class SourceHealth:
@@ -216,14 +230,15 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
     results_path = Path(results_dir)
 
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, status, body, content_type, api=False):
+        def _send(self, status, body, content_type, api=False, no_store=False):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Content-Security-Policy", CSP)
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            if api:
+            if api or no_store:
                 self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
@@ -253,6 +268,19 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                     and parsed.username is None and parsed.password is None
                     and not parsed.path and not parsed.query and not parsed.fragment
                     and port == self.server.server_port)
+
+        def _origin_allowed(self):
+            origin = self.headers.get("Origin")
+            if origin is None:
+                return True
+            try:
+                parsed = urlsplit(origin)
+            except ValueError:
+                return False
+            return (parsed.scheme in {"http", "https"}
+                    and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                    and parsed.port == self.server.server_port
+                    and not parsed.path and not parsed.query and not parsed.fragment)
 
         def _request_url(self):
             try:
@@ -295,7 +323,7 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                             '<meta name="packetlens-token" content="">',
                             f'<meta name="packetlens-token" content="{token}">')
                         body = html.encode("utf-8")
-                    self._send(200, body, content_type)
+                    self._send(200, body, content_type, no_store=(name == "index.html"))
                     return
                 if path == "/api/health":
                     snapshot = snapshots.get()
@@ -443,6 +471,16 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                         self._json(404, {"error": "result file not found"})
                         return
                     result_path = results_path / name
+                    if result_path.is_symlink():
+                        self._json(404, {"error": "result file not found"})
+                        return
+                    try:
+                        if result_path.resolve().parent != results_path.resolve():
+                            self._json(404, {"error": "result file not found"})
+                            return
+                    except OSError:
+                        self._json(404, {"error": "result file not found"})
+                        return
                     if result_path.stat().st_size > MAX_BODY:
                         self._json(400, {"error": "result file is too large"})
                         return
@@ -470,9 +508,36 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                 logging.exception("Dashboard GET failed unexpectedly")
                 self._json(500, {"error": "internal server error"})
 
+        def _drain_small_body(self):
+            """Consume an already-in-flight small request body on early 4xx rejection."""
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                return
+            if 0 < length <= 8192:
+                sock = getattr(self, "connection", None)
+                prev_timeout = sock.gettimeout() if sock is not None else None
+                try:
+                    if sock is not None:
+                        sock.settimeout(0.1)
+                    self.rfile.read(length)
+                except OSError:
+                    pass
+                finally:
+                    if sock is not None:
+                        try:
+                            sock.settimeout(prev_timeout)
+                        except OSError:
+                            pass
+
         def do_POST(self):
             if not self._host_allowed():
+                self._drain_small_body()
                 self._json(403, {"error": "Host header is not allowed"})
+                return
+            if not self._origin_allowed():
+                self._drain_small_body()
+                self._json(403, {"error": "Origin header is not allowed"})
                 return
             supplied = self.headers.get("X-PacketLens-Token", "")
             try:
@@ -480,6 +545,7 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
             except TypeError:
                 token_matches = False
             if not token_matches:
+                self._drain_small_body()
                 self._json(403, {"error": "invalid or missing dashboard token"})
                 return
             try:
@@ -500,6 +566,7 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                     self.close_connection = True
                     raise ValueError("request body is too large or invalid")
                 if self.headers.get_content_type() != "application/json":
+                    self._drain_small_body()
                     raise ValueError("Content-Type must be application/json")
                 try:
                     body = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -548,8 +615,15 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
 
 
 def serve(engine, source, host="127.0.0.1", port=8080, *, store=None, source_name="live",
-          policy=None, results_dir="results"):
+          policy=None, results_dir="results", allow_non_loopback=False):
     """Serve the console while a packet-source callable yields (timestamp, bytes[, linktype])."""
+    if not is_loopback_host(host) and not allow_non_loopback:
+        raise ValueError(
+            f"refusing to bind dashboard without TLS to non-loopback host {host!r}; "
+            "use loopback (127.0.0.1) or pass --allow-remote on a trusted isolated network"
+        )
+    if not is_loopback_host(host):
+        logging.warning("Binding unencrypted PacketLens HTTP console to non-loopback host %s", host)
     token = secrets.token_urlsafe(32)
     store = store or getattr(engine, "store", None)
     if store is None:

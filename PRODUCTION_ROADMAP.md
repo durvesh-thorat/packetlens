@@ -3,7 +3,7 @@
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M4 — Security and privacy review (M0, M1, M2, M3 complete).
+**Current milestone:** M5 — Validate detection quality (M0–M4 technical work complete; M0/M4 await maintainer/human sign-off in Section 10).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -128,8 +128,9 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-12):** 4/8 milestones are DONE (50.0%). This is
-not overall engineering completion, production readiness, or weighted work progress.
+**Milestone-status proxy (as of 2026-11-12):** 5/8 milestones are DONE (62.5%) for technical
+deliverables/checks, with M0 and M4 pending human maintainer/reviewer approval in Section 10.
+This is not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
 **Status: DONE — scope, capacity bounds, acceptance gates, retention, and non-goals defined (pending maintainer sign-off in Section 10 for pilot)**
@@ -180,11 +181,26 @@ Satisfied by:
   tests in `tests/test_reliability.py` (8/8 passing) and Windows 11 load measurements.
 
 ### M4 — Security and privacy review
-**Status: NOT STARTED**
+**Status: DONE — threat model, HTTP/report hardening, and security tests verified (awaiting experienced human reviewer approval in DEC-2026-11-12-m4-security)**
 Threat-model the chosen environment. Review dashboard/API access, sensitive data, tokens,
 file permissions, privilege boundaries, retention, and untrusted packet-derived output.
 Do not expose the built-in HTTP server directly to an untrusted network.
 **Exit:** An experienced reviewer approves the design for the specific deployment.
+
+Satisfied technically by:
+- Threat model, trust boundaries, privilege boundaries, token/storage hygiene, and residual
+  risks documented in `docs/THREAT_MODEL.md`.
+- Loopback-by-default enforcement (`is_loopback_host`, `serve(..., allow_non_loopback=False)`,
+  CLI `--allow-remote` explicit opt-in), strict `CSP` (`frame-ancestors 'none'; base-uri 'none';
+  form-action 'self'`), `X-Frame-Options: DENY`, `Cache-Control: no-store` on token-bearing
+  `index.html`, `Origin` validation on `POST`, symlink rejection in `/api/quality/<name>`, and
+  safe non-blocking small-body draining on early Windows 4xx rejections (`packetlens/dashboard.py`,
+  `packetlens/cli.py`).
+- Strict `script-src 'none'` `<meta http-equiv="Content-Security-Policy">` and escaped output in
+  offline HTML reports (`packetlens/report.py`).
+- Security regression suite in `tests/test_security.py` + `tests/test_dashboard.py` (14/14
+  passing across 3 consecutive runs). Human approval recorded as `PROPOSED` in
+  `DEC-2026-11-12-m4-security`.
 
 ### M5 — Validate detection quality
 **Status: NOT STARTED**
@@ -663,6 +679,36 @@ test run recorded in this log.
 - Next task: Start M4 (`roadmap/m4-security-review`) for threat modeling, security
   hardening, and security regression tests.
 
+#### 2026-11-12 — M4 security and privacy threat model, hardening, and regression tests
+- Milestone/status: M4 — DONE (technical hardening, threat model, and tests verified;
+  human reviewer sign-off `DEC-2026-11-12-m4-security` is `PROPOSED` in Section 10).
+- Goal and files changed: Threat-model Windows 11 offline PCAP + loopback dashboard usage,
+  harden HTTP/dashboard/report boundaries against CSRF, clickjacking, symlink escape, token
+  caching, accidental non-loopback exposure, and XSS. Changed `packetlens/dashboard.py`,
+  `packetlens/cli.py`, `packetlens/report.py`, `docs/THREAT_MODEL.md`,
+  `tests/test_security.py`, and this roadmap.
+- Behavior changed:
+  - Dashboard `serve()` refuses non-loopback `host` unless `allow_non_loopback=True`
+    (exposed on CLI as `serve --allow-remote`), logging a warning if overridden.
+  - Added `frame-ancestors 'none'; base-uri 'none'; form-action 'self'` to HTTP `CSP`,
+    `X-Frame-Options: DENY`, `Cache-Control: no-store` on `/` and `/index.html`, `Origin`
+    validation on `POST`, symlink rejection on `/api/quality/<name>`, and bounded non-blocking
+    small-body draining on early `do_POST` 4xx rejections for clean Windows socket shutdown.
+  - Added strict `script-src 'none'` `<meta http-equiv="Content-Security-Policy">` to
+    generated offline HTML reports in `packetlens/report.py`.
+- Validation command(s) and exact result:
+  - `python -m unittest tests.test_security tests.test_dashboard -v` (3 consecutive runs) —
+    exit 0; 14 tests run, 14 passed, 0 failed per run (8 in `test_security`, 6 in
+    `test_dashboard`).
+  - `node --check packetlens/static/app.js` — exit 0.
+- Evidence/artifact: `docs/THREAT_MODEL.md`, `tests/test_security.py`, and Section 10
+  `DEC-2026-11-12-m4-security`.
+- Remaining risks or unverified assumptions: Experienced human security reviewer sign-off is
+  required before pilot deployment. Built-in server has no TLS and assumes local single-user
+  workstation OS account isolation (no remote untrusted exposure).
+- Next task: Start M5 (`roadmap/m5-detection-quality`) to validate detection quality on
+  offline CIC-IDS2017 data and multi-seed synthetic traffic.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -695,6 +741,23 @@ may prepare evidence or options, but only the project maintainer can approve a d
   unbounded storage retention and non-loopback HTTP exposure.
 - Approval status: `PROPOSED` (awaiting maintainer confirmation before M6 pilot)
 - Review date or trigger: Before M6 controlled pilot or any change to deployment OS/capture source.
+
+#### DEC-2026-11-12-m4-security — Loopback-only dashboard boundary, HTTP hardening, and HTML report CSP
+- Decision and exact scope: Require explicit opt-in (`--allow-remote`) to bind the built-in
+  unencrypted dashboard HTTP server off loopback, enforce `Origin` + `Host` + per-run token
+  checks on `POST`, prevent browser caching of token-bearing `index.html`, reject symlinks
+  in `/api/quality/<name>`, and lock offline HTML reports to `script-src 'none'`.
+- Decision owner: Project maintainer (with experienced human security reviewer)
+- Reviewers consulted: AI Coordinator (threat model and regression suite prepared)
+- Evidence and alternatives considered: `docs/THREAT_MODEL.md`, `tests/test_security.py` +
+  `tests/test_dashboard.py` (14/14 passing). Considered implementing TLS inside stdlib
+  `ThreadingHTTPServer`, rejected for M4 because Section 2 restricts deployment to local
+  Windows 11 loopback and remote access requires a dedicated reverse proxy / auth design.
+- Risks accepted / rejected: Accepted single-user OS-account trust on `127.0.0.1` and local
+  SQLite file ACLs; rejected unauthenticated mutation routes, remote HTTP binding by
+  default, and inline report scripts.
+- Approval status: `PROPOSED` (awaiting experienced human reviewer approval)
+- Review date or trigger: Before M6 controlled pilot or any change enabling remote access.
 
 ### Decision entry template
 
