@@ -3,7 +3,7 @@
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M3 — Reliability and observability (M0, M1, M2 complete).
+**Current milestone:** M4 — Security and privacy review (M0, M1, M2, M3 complete).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -128,7 +128,7 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-12):** 3/8 milestones are DONE (37.5%). This is
+**Milestone-status proxy (as of 2026-11-12):** 4/8 milestones are DONE (50.0%). This is
 not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
@@ -163,11 +163,21 @@ validation command with evidence is:
   18 skipped, 0 failed.
 
 ### M3 — Reliability and observability
-**Status: NOT STARTED**
+**Status: DONE — observability, WAL-safe backup/retention, load measurements, and failure tests verified**
 Measure representative load, memory, processing delay, and data loss. Test shutdown,
 overload, database errors, disk-full handling, and recovery. Define retention and backup.
 **Exit:** Operators can detect stale/degraded monitoring and storage failures; recovery is
 documented and tested.
+
+Satisfied by:
+- Structured logging (`packetlens/engine.py`, `packetlens/store.py`, `packetlens/dashboard.py`),
+  processing latency metrics (`avg_processing_us`, `max_processing_us`), OS RSS reporting
+  (`memory_rss_bytes`), store queue/error visibility, and overall `service_status` /
+  `degraded_reasons` surfaced in `/api/health` and the dashboard banner (`packetlens/static/app.js`).
+- WAL-safe online/offline backup (`Store.backup`, `packetlens store backup`) and 90-day
+  retention pruning (`Store.prune_older_than`, `packetlens store prune`) plus `docs/OPERATIONS.md`.
+- Focused failure, overload, disk-full, shutdown, backup/recovery, retention, and bounded-load
+  tests in `tests/test_reliability.py` (8/8 passing) and Windows 11 load measurements.
 
 ### M4 — Security and privacy review
 **Status: NOT STARTED**
@@ -609,6 +619,49 @@ test run recorded in this log.
   not yet measured (M5).
 - Next task: Start M3 (`roadmap/m3-reliability-observability`) for reliability,
   observability, retention/backup tooling, and load/failure testing.
+
+#### 2026-11-12 — M3 reliability, observability, retention, and backup implemented and measured
+- Milestone/status: M3 — DONE.
+- Goal and files changed: Add operator-visible service/storage health and processing
+  metrics, WAL-safe SQLite backup and 90-day retention pruning, operator runbook, Windows
+  11 load measurements, and focused failure/recovery tests. Changed `packetlens/engine.py`,
+  `packetlens/store.py`, `packetlens/dashboard.py`, `packetlens/static/app.js`,
+  `packetlens/cli.py`, `docs/OPERATIONS.md`, `tests/test_reliability.py`, and this roadmap.
+- Behavior changed:
+  - `Engine` logs malformed/non-finite inputs and reports `avg_processing_us` and
+    `max_processing_us` in `snapshot()`.
+  - `Store` exposes `queue_capacity`, `writer_alive`, `writer_error`, and `status` in
+    `counters()`, logs writer/drop events, and adds `backup()` and `prune_older_than()`.
+  - `/api/health` reports `service_status` (`healthy`/`degraded`/`unhealthy`),
+    `degraded_reasons`, `memory_rss_bytes`, `avg_processing_us`, `max_processing_us`,
+    `store_status`, `store_error`, and `source_error`; `app.js` displays degraded/unhealthy
+    status in the UI banner instead of reporting `"Connected"`.
+  - CLI adds `packetlens store backup --db ... --out ...` and
+    `packetlens store prune --db ... --days 90`.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -p "test_reliability.py" -v` — exit 0;
+    8 tests run, 8 passed, 0 failed.
+  - `node --check packetlens/static/app.js` — exit 0.
+  - `python -m packetlens bench` — exit 0; `102,773` packets, `487,303` parse-only pps,
+    `162,350` full-pipeline pps (in-memory `Engine()`).
+  - End-to-end `Engine + Store` load run (`139,708` synthetic attack+benign packets,
+    `600`s duration, SQLite WAL enabled) — `11.053`s (`12,640` pps), `avg_us=76.37`,
+    `max_us=256,757.8`, RSS `122.12 MiB -> 183.76 MiB` (includes test frame buffer),
+    `dropped=0`, `written=736`.
+  - `python -m unittest discover -s tests -v` — exit 0; 96 tests run, 78 passed,
+    18 skipped (11 require pandas+scikit-learn, 4 require pandas, 3 require
+    torch+tsfm_public), 0 failed.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: `tests/test_reliability.py`, `docs/OPERATIONS.md`, and the recorded
+  Windows 11 measurements above.
+- Remaining risks or unverified assumptions: With `Store` and `HostTable` persistence
+  enabled, end-to-end throughput (`12,640` pps) is lower than in-memory `Engine`
+  throughput (`162,350` pps) due to periodic host-table serialization; offline PCAP
+  analysis remains bounded only by execution time, while high-speed live capture (>12k pps)
+  would require decoupling or batching host updates. Real-PCAP multi-GB testing remains
+  unverified.
+- Next task: Start M4 (`roadmap/m4-security-review`) for threat modeling, security
+  hardening, and security regression tests.
 
 ### Progress-entry template
 

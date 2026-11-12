@@ -176,9 +176,25 @@ function updateHealth(health) {
   setText("packet-clock", formatTime(health.now));
   const label = byId("health-label");
   const indicator = byId("health-indicator");
-  const healthy = !byId("stale-banner").hidden;
-  indicator.classList.toggle("is-stale", healthy);
-  label.textContent = healthy ? "Stale" : "Connected";
+  const banner = byId("stale-banner");
+  const reasons = Array.isArray(health.degraded_reasons) ? health.degraded_reasons : [];
+  const serviceStatus = health.service_status || (health.source_stale ? "degraded" : "healthy");
+  const isUnhealthy = serviceStatus === "unhealthy";
+  const isDegraded = serviceStatus === "degraded" || Boolean(health.source_stale);
+  if (isUnhealthy || isDegraded) {
+    const reasonText = reasons.length ? ` (${reasons.join(", ")})` : "";
+    banner.textContent = isUnhealthy ?
+      `Storage or capture error detected${reasonText}. Check logs and /api/health.` :
+      `Monitoring degraded${reasonText}. Displayed values may be stale or incomplete.`;
+    banner.hidden = false;
+    indicator.classList.add("is-stale");
+    label.textContent = isUnhealthy ? "Unhealthy" : "Degraded";
+  } else {
+    banner.hidden = true;
+    banner.textContent = "Server unavailable. Displayed values may be stale.";
+    indicator.classList.remove("is-stale");
+    label.textContent = "Connected";
+  }
 
   const currentTime = Date.now();
   if (state.lastHealth) {
@@ -191,7 +207,6 @@ function updateHealth(health) {
 
 async function pollHealth() {
   const health = await request("/api/health");
-  byId("stale-banner").hidden = true;
   updateHealth(health);
   return health;
 }

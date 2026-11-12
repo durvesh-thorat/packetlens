@@ -5,12 +5,18 @@ queue is full, submissions are dropped and counted. Read results are capped to k
 large stores from causing unbounded response memory.
 """
 import json
+import logging
+import math
+import os
 import queue
 import sqlite3
 import threading
 import time
 import uuid
 from collections import OrderedDict
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 QUEUE_CAPACITY = 10000
@@ -88,15 +94,17 @@ def migrate(connection):
 class Store:
     """Persistent SQLite store with a single bounded asynchronous writer."""
 
-    def __init__(self, path):
+    def __init__(self, path, queue_capacity=QUEUE_CAPACITY):
         self.path = str(path)
         self.incident_gap_s = 300
-        self._queue = queue.Queue(maxsize=QUEUE_CAPACITY)
+        self.queue_capacity = max(1, int(queue_capacity))
+        self._queue = queue.Queue(maxsize=self.queue_capacity)
         self._counter_lock = threading.Lock()
         self._incident_lock = threading.Lock()
         self._dropped = 0
         self._written = 0
         self._writer_error = None
+        self._closed = False
         setup = sqlite3.connect(self.path, timeout=30)
         try:
             setup.execute("PRAGMA journal_mode=WAL")
@@ -139,10 +147,12 @@ class Store:
                     future["result"] = result
             except Exception as exc:
                 connection.rollback()
+                logger.exception("SQLite writer failed")
                 if future is not None:
                     future["error"] = exc
                 else:
-                    self._writer_error = exc
+                    with self._counter_lock:
+                        self._writer_error = exc
             finally:
                 if future is not None:
                     future["event"].set()
@@ -150,8 +160,10 @@ class Store:
         connection.close()
 
     def _raise_writer_error(self):
-        if self._writer_error is not None:
-            raise RuntimeError(f"SQLite writer failed: {self._writer_error}") from self._writer_error
+        with self._counter_lock:
+            err = self._writer_error
+        if err is not None:
+            raise RuntimeError(f"SQLite writer failed: {err}") from err
 
     def _enqueue(self, function, wait=False):
         self._raise_writer_error()
@@ -164,6 +176,10 @@ class Store:
         except queue.Full:
             with self._counter_lock:
                 self._dropped += 1
+                dropped = self._dropped
+            if dropped == 1 or dropped % 1000 == 0:
+                logger.warning("SQLite write queue full (capacity=%d); dropped=%d",
+                               self.queue_capacity, dropped)
             return None
         if future is not None:
             future["event"].wait()
@@ -370,12 +386,14 @@ class Store:
     def close(self):
         """Drain accepted writes and stop the sole writer thread."""
         if not self._thread.is_alive():
+            self._closed = True
             return
         flush_error = None
         try:
             self.flush()
         except RuntimeError as exc:
             flush_error = exc
+        self._closed = True
         self._queue.put(None)
         self._thread.join()
         if flush_error is not None:
@@ -383,9 +401,95 @@ class Store:
         self._raise_writer_error()
 
     def counters(self):
-        """Return the queue's current size and cumulative drop/write counts."""
+        """Return the queue's current size, capacity, health, and drop/write counts."""
         with self._counter_lock:
-            return {"dropped": self._dropped, "queued": self._queue.qsize(), "written": self._written}
+            writer_error = None if self._writer_error is None else str(self._writer_error)
+            dropped = self._dropped
+            written = self._written
+        writer_alive = self._thread.is_alive()
+        if writer_error is not None or (not self._closed and not writer_alive):
+            status = "error"
+        elif dropped > 0:
+            status = "degraded"
+        else:
+            status = "ok"
+        return {
+            "dropped": dropped,
+            "queued": self._queue.qsize(),
+            "queue_capacity": self.queue_capacity,
+            "written": written,
+            "writer_alive": writer_alive,
+            "writer_error": writer_error,
+            "status": status,
+        }
+
+    def backup(self, dest_path):
+        """Create a consistent WAL-safe SQLite backup at `dest_path`."""
+        dest = Path(dest_path)
+        if os.path.abspath(str(dest)) == os.path.abspath(self.path):
+            raise ValueError("backup destination must differ from the active database path")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        existed_before = dest.exists()
+        self.flush()
+
+        def run_backup(connection):
+            target = sqlite3.connect(str(dest), timeout=30)
+            try:
+                connection.backup(target)
+            finally:
+                target.close()
+
+        try:
+            self._enqueue(run_backup, wait=True)
+        except Exception:
+            if not existed_before and dest.exists():
+                try:
+                    dest.unlink()
+                except OSError:
+                    pass
+            raise
+        logger.info("SQLite store backed up from %s to %s", self.path, dest)
+        return str(dest)
+
+    def prune_older_than(self, cutoff_ts):
+        """Delete closed/expired records strictly older than `cutoff_ts` while keeping open incidents."""
+        cutoff = float(cutoff_ts)
+        if not math.isfinite(cutoff):
+            raise ValueError("cutoff timestamp must be finite")
+
+        def run_prune(connection):
+            expired_ids_sql = "SELECT id FROM incidents WHERE status='closed' AND last_ts < ?"
+            alerts_cur = connection.execute(
+                f"DELETE FROM alerts WHERE ts < ? AND (incident_id IS NULL OR incident_id IN ({expired_ids_sql}))",
+                (cutoff, cutoff),
+            )
+            audit_cur = connection.execute(
+                f"DELETE FROM audit_log WHERE incident_id IN ({expired_ids_sql})",
+                (cutoff,),
+            )
+            incidents_cur = connection.execute(
+                "DELETE FROM incidents WHERE status='closed' AND last_ts < ?",
+                (cutoff,),
+            )
+            stats_cur = connection.execute(
+                "DELETE FROM minute_stats WHERE t < ?",
+                (cutoff,),
+            )
+            runs_cur = connection.execute(
+                "DELETE FROM capture_runs WHERE last_ts IS NOT NULL AND last_ts < ?",
+                (cutoff,),
+            )
+            return {
+                "incidents": incidents_cur.rowcount,
+                "alerts": alerts_cur.rowcount,
+                "audit_log": audit_cur.rowcount,
+                "minute_stats": stats_cur.rowcount,
+                "capture_runs": runs_cur.rowcount,
+            }
+
+        counts = self._enqueue(run_prune, wait=True)
+        logger.info("Pruned store %s older than %s: %s", self.path, cutoff, counts)
+        return counts
 
     def _connect_read(self):
         connection = sqlite3.connect(self.path, timeout=30)

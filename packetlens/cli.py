@@ -204,6 +204,22 @@ def cmd_incidents(a):
         store.close()
 
 
+def cmd_store(a):
+    store = Store(a.db)
+    try:
+        if a.store_action == "backup":
+            dest = store.backup(a.out)
+            print(json.dumps({"backup": dest, "counters": store.counters()}, indent=2))
+        else:
+            if a.days <= 0:
+                raise ValueError("retention days must be positive")
+            cutoff = time.time() - a.days * 86400.0
+            counts = store.prune_older_than(cutoff)
+            print(json.dumps({"cutoff_ts": cutoff, "days": a.days, "deleted": counts}, indent=2))
+    finally:
+        store.close()
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="packetlens", description="Network traffic analyzer built from scratch")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -316,6 +332,17 @@ def main(argv=None):
         if action in {"ack", "close"}:
             v.add_argument("--note", default="")
         v.set_defaults(fn=cmd_incidents)
+
+    s = sub.add_parser("store", help="backup or prune the SQLite store")
+    store_sub = s.add_subparsers(dest="store_action", required=True)
+    v = store_sub.add_parser("backup", help="create a WAL-safe backup of a PacketLens SQLite store")
+    v.add_argument("--db", required=True)
+    v.add_argument("--out", required=True)
+    v.set_defaults(fn=cmd_store)
+    v = store_sub.add_parser("prune", help="remove closed/expired records older than --days")
+    v.add_argument("--db", required=True)
+    v.add_argument("--days", type=float, default=90.0)
+    v.set_defaults(fn=cmd_store)
 
     command_args = list(sys.argv[1:] if argv is None else argv)
     a = p.parse_args(command_args)

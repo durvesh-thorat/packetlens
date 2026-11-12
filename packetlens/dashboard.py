@@ -4,12 +4,61 @@ import json
 import logging
 import math
 import secrets
+import sys
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
+
+
+def _process_rss_bytes():
+    """Return current resident memory in bytes using standard-library OS hooks, or None."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            handle = kernel32.GetCurrentProcess()
+            get_mem = getattr(kernel32, "K32GetProcessMemoryInfo", None)
+            if get_mem is None:
+                get_mem = ctypes.windll.psapi.GetProcessMemoryInfo
+            get_mem.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                wintypes.DWORD,
+            ]
+            get_mem.restype = wintypes.BOOL
+            if get_mem(handle, ctypes.byref(counters), counters.cb):
+                return int(counters.WorkingSetSize)
+        except Exception:
+            return None
+        return None
+    try:
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return int(rss if sys.platform == "darwin" else rss * 1024)
+    except Exception:
+        return None
 
 from . import __version__
 from .policy import effective_policy
@@ -32,7 +81,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
 
 
 class SourceHealth:
-    """Track packet-source receipt times independently of capture timestamps."""
+    """Track packet-source receipt times and errors independently of capture timestamps."""
 
     def __init__(self, engine, started_at, stale_after_s=SOURCE_STALE_AFTER_S):
         self.lock = threading.Lock()
@@ -41,6 +90,7 @@ class SourceHealth:
         snapshot = engine.snapshot()
         self.last_packet_monotonic = time.monotonic() if snapshot["total_packets"] else None
         self.last_packet_ts = snapshot["now"] if snapshot["total_packets"] else None
+        self.source_error = None
 
     def packet_received(self, ts):
         try:
@@ -51,20 +101,27 @@ class SourceHealth:
             timestamp = None
         with self.lock:
             self.last_packet_monotonic = time.monotonic()
+            self.source_error = None
             if timestamp is not None:
                 self.last_packet_ts = timestamp
+
+    def record_error(self, error):
+        with self.lock:
+            self.source_error = str(error)
 
     def status(self):
         with self.lock:
             last_seen = self.last_packet_monotonic
             age = max(0.0, time.monotonic() -
                       (self.started_at if last_seen is None else last_seen))
-            stale = age >= self.stale_after_s
+            stale = age >= self.stale_after_s or self.source_error is not None
+            source_status = "error" if self.source_error is not None else ("stale" if stale else "healthy")
             return {
-                "source_status": "stale" if stale else "healthy",
+                "source_status": source_status,
                 "source_stale": stale,
                 "source_age_s": round(age, 3),
                 "source_last_packet_ts": self.last_packet_ts,
+                "source_error": self.source_error,
             }
 
 
@@ -136,7 +193,9 @@ def _consume(engine, source, store, source_name, stop_event, source_health=None)
             if source_health is not None:
                 source_health.packet_received(ts)
             engine.process(ts, data, linktype)
-    except Exception:
+    except Exception as exc:
+        if source_health is not None:
+            source_health.record_error(exc)
         logging.exception("Packet source stopped with an error")
     finally:
         try:
@@ -240,16 +299,41 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                     return
                 if path == "/api/health":
                     snapshot = snapshots.get()
+                    source_state = source_health.status()
+                    store_counters = store.counters()
+                    degraded_reasons = []
+                    if source_state.get("source_error") is not None:
+                        degraded_reasons.append("source_error")
+                    elif source_state["source_stale"]:
+                        degraded_reasons.append("source_stale")
+                    if store_counters["status"] == "error":
+                        degraded_reasons.append("store_writer_error")
+                    elif store_counters["status"] == "degraded":
+                        degraded_reasons.append("store_drops")
+                    if (store_counters["status"] == "error" or
+                            source_state["source_status"] == "error"):
+                        service_status = "unhealthy"
+                    elif degraded_reasons:
+                        service_status = "degraded"
+                    else:
+                        service_status = "healthy"
                     self._json(200, {
                         "uptime_s": max(0, time.monotonic() - started_at),
+                        "service_status": service_status,
+                        "degraded_reasons": degraded_reasons,
                         "source": source,
                         "packets_total": snapshot["total_packets"],
                         "bytes_total": snapshot["total_bytes"],
                         "malformed": snapshot["malformed"],
                         "packets_per_s": snapshots.packets_per_s(),
+                        "avg_processing_us": snapshot.get("avg_processing_us", 0.0),
+                        "max_processing_us": snapshot.get("max_processing_us", 0.0),
+                        "memory_rss_bytes": _process_rss_bytes(),
                         "now": snapshot["now"],
-                        **source_health.status(),
-                        "store_counters": store.counters(),
+                        **source_state,
+                        "store_status": store_counters["status"],
+                        "store_error": store_counters["writer_error"],
+                        "store_counters": store_counters,
                         "policy": policy.name,
                         "version": __version__,
                     })

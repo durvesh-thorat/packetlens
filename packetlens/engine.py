@@ -1,8 +1,12 @@
 """Ties parsing, detectors, time-series bins and live statistics together."""
-import threading
+import logging
 import math
+import threading
+import time
 from collections import Counter, deque
 from os import PathLike
+
+logger = logging.getLogger(__name__)
 
 from .detectors import (ArpSpoofDetector, DnsTunnelDetector, HorizontalScanDetector,
                         PortScanDetector, SynFloodDetector, default_detectors)
@@ -56,26 +60,46 @@ class Engine:
         self.bins = deque(maxlen=history)
         self.total_packets = self.total_bytes = self.malformed = 0
         self.last_ts = 0.0
+        self._processing_ns_total = 0
+        self._max_processing_ns = 0
+        self._processed_samples = 0
         self.protocols = Counter()
         self.talkers = Counter()
         self._lock = threading.Lock()
 
     def process(self, ts, data, linktype=LINKTYPE_ETHERNET):
         """Decode one raw frame and feed it. Returns the alerts it caused."""
+        t0 = time.perf_counter_ns()
         try:
-            ts = float(ts)
-            if not math.isfinite(ts):
-                raise ValueError("timestamp must be finite")
-        except (TypeError, ValueError, OverflowError):
+            try:
+                ts = float(ts)
+                if not math.isfinite(ts):
+                    raise ValueError("timestamp must be finite")
+            except (TypeError, ValueError, OverflowError):
+                with self._lock:
+                    self.malformed += 1
+                    malformed_count = self.malformed
+                if malformed_count == 1 or malformed_count % 1000 == 0:
+                    logger.warning("Rejected non-finite packet timestamp (malformed=%d)",
+                                   malformed_count)
+                return []
+            pkt = parse_packet(ts, data, linktype)
+            if pkt is None:
+                with self._lock:
+                    self.malformed += 1
+                    malformed_count = self.malformed
+                if malformed_count == 1 or malformed_count % 1000 == 0:
+                    logger.debug("Malformed or unsupported packet dropped (malformed=%d)",
+                                 malformed_count)
+                return []
+            return self.feed(pkt)
+        finally:
+            elapsed_ns = time.perf_counter_ns() - t0
             with self._lock:
-                self.malformed += 1
-            return []
-        pkt = parse_packet(ts, data, linktype)
-        if pkt is None:
-            with self._lock:
-                self.malformed += 1
-            return []
-        return self.feed(pkt)
+                self._processing_ns_total += elapsed_ns
+                if elapsed_ns > self._max_processing_ns:
+                    self._max_processing_ns = elapsed_ns
+                self._processed_samples += 1
 
     def feed(self, pkt):
         new = []
@@ -158,11 +182,16 @@ class Engine:
 
     def snapshot(self, last_bins=120, last_alerts=40):
         with self._lock:
+            avg_us = (round((self._processing_ns_total / self._processed_samples) / 1000.0, 2)
+                      if self._processed_samples else 0.0)
+            max_us = round(self._max_processing_ns / 1000.0, 2)
             return {
                 "total_packets": self.total_packets,
                 "total_bytes": self.total_bytes,
                 "malformed": self.malformed,
                 "now": self.last_ts,
+                "avg_processing_us": avg_us,
+                "max_processing_us": max_us,
                 "protocols": dict(self.protocols),
                 "talkers": self.talkers.most_common(8),
                 "bins": list(self.bins)[-last_bins:],
