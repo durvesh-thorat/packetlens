@@ -86,6 +86,7 @@
       "id": "volumetric",
       "detector": "volumetric",
       "enabled": true,
+      "experimental": true,
       "action": "alert",
       "incident_gap_s": 15,
       "params": {
@@ -99,7 +100,7 @@
         "src": [],
         "dst": []
       },
-      "description": "Detect anomalous traffic-volume bins."
+      "description": "EXPERIMENTAL (~7.0 FP/hr on clean synthetic bursts, ~1.2/hr on CIC-IDS2017): EWMA z-score volume anomaly detector."
     }
   ]
 }
