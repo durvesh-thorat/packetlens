@@ -2,6 +2,7 @@
 import hmac
 import json
 import logging
+import math
 import secrets
 import threading
 import time
@@ -25,8 +26,46 @@ SEVERITIES = {"low", "medium", "high", "critical"}
 STATUSES = {"open", "acknowledged", "closed"}
 MAX_BODY = 1024 * 1024
 MAX_OFFSET = 10_000_000
+SOURCE_STALE_AFTER_S = 10.0
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
        "img-src 'self' data:; connect-src 'self'")
+
+
+class SourceHealth:
+    """Track packet-source receipt times independently of capture timestamps."""
+
+    def __init__(self, engine, started_at, stale_after_s=SOURCE_STALE_AFTER_S):
+        self.lock = threading.Lock()
+        self.started_at = started_at
+        self.stale_after_s = stale_after_s
+        snapshot = engine.snapshot()
+        self.last_packet_monotonic = time.monotonic() if snapshot["total_packets"] else None
+        self.last_packet_ts = snapshot["now"] if snapshot["total_packets"] else None
+
+    def packet_received(self, ts):
+        try:
+            timestamp = float(ts)
+            if not math.isfinite(timestamp):
+                timestamp = None
+        except (TypeError, ValueError, OverflowError):
+            timestamp = None
+        with self.lock:
+            self.last_packet_monotonic = time.monotonic()
+            if timestamp is not None:
+                self.last_packet_ts = timestamp
+
+    def status(self):
+        with self.lock:
+            last_seen = self.last_packet_monotonic
+            age = max(0.0, time.monotonic() -
+                      (self.started_at if last_seen is None else last_seen))
+            stale = age >= self.stale_after_s
+            return {
+                "source_status": "stale" if stale else "healthy",
+                "source_stale": stale,
+                "source_age_s": round(age, 3),
+                "source_last_packet_ts": self.last_packet_ts,
+            }
 
 
 class SnapshotCache:
@@ -84,7 +123,7 @@ def _persist_bins(engine, store, last_t):
     return last_t
 
 
-def _consume(engine, source, store, source_name, stop_event):
+def _consume(engine, source, store, source_name, stop_event, source_health=None):
     first_ts = last_ts = None
     try:
         for packet in source():
@@ -94,6 +133,8 @@ def _consume(engine, source, store, source_name, stop_event):
             linktype = linktype_value[0] if linktype_value else 1
             first_ts = ts if first_ts is None else first_ts
             last_ts = ts
+            if source_health is not None:
+                source_health.packet_received(ts)
             engine.process(ts, data, linktype)
     except Exception:
         logging.exception("Packet source stopped with an error")
@@ -109,8 +150,10 @@ def _consume(engine, source, store, source_name, stop_event):
             logging.exception("Could not finalize capture data")
 
 
-def make_handler(engine, store, token, source, policy, results_dir, started_at, snapshots=None):
+def make_handler(engine, store, token, source, policy, results_dir, started_at, snapshots=None,
+                 source_health=None):
     snapshots = snapshots or SnapshotCache(engine)
+    source_health = source_health or SourceHealth(engine, started_at)
     results_path = Path(results_dir)
 
     class Handler(BaseHTTPRequestHandler):
@@ -205,6 +248,7 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                         "malformed": snapshot["malformed"],
                         "packets_per_s": snapshots.packets_per_s(),
                         "now": snapshot["now"],
+                        **source_health.status(),
                         "store_counters": store.counters(),
                         "policy": policy.name,
                         "version": __version__,
@@ -431,11 +475,13 @@ def serve(engine, source, host="127.0.0.1", port=8080, *, store=None, source_nam
     started_at = time.monotonic()
     stop_event = threading.Event()
     snapshots = SnapshotCache(engine)
+    source_health = SourceHealth(engine, started_at)
     server = ThreadingHTTPServer(
         (host, port), make_handler(engine, store, token, source_name, policy, results_dir,
-                                   started_at, snapshots))
+                                   started_at, snapshots, source_health))
     server.daemon_threads = True
-    worker = threading.Thread(target=_consume, args=(engine, source, store, source_name, stop_event),
+    worker = threading.Thread(target=_consume,
+                              args=(engine, source, store, source_name, stop_event, source_health),
                               name="packetlens-packet-source", daemon=True)
     refresher = threading.Thread(target=_refresh_snapshots, args=(snapshots, stop_event),
                                  name="packetlens-dashboard-snapshot", daemon=True)

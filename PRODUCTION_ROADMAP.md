@@ -99,7 +99,7 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-11):** 1/8 milestones are DONE (12.5%). This is
+**Milestone-status proxy (as of 2026-11-12):** 2/8 milestones are DONE (25.0%). This is
 not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
@@ -117,11 +117,17 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: IN PROGRESS**
+**Status: DONE — pcap correctness boundaries validated**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
 successfully analyzed.
+
+This milestone is satisfied by the focused classic-PCAP boundary checks and CLI coverage
+in `tests/test_pcap_and_parsers.py`, plus the documentation in `README.md`. The
+validation command with evidence is:
+- `python -m unittest discover -s tests -v` — exit 0; 87 tests run, 69 passed,
+  18 skipped, 0 failed.
 
 ### M3 — Reliability and observability
 **Status: NOT STARTED**
@@ -527,6 +533,25 @@ test run recorded in this log.
   and remaining M0 decisions are unverified/unchanged.
 - Next task: Obtain independent review of the patch before selecting another bounded M2
   task; do not infer M2 completion.
+
+#### 2026-11-12 — M2 correctness boundaries closed
+- Milestone/status: M2 — DONE.
+- Goal and files changed: Close the correctness-boundary milestone by verifying supported
+  classic-PCAP inputs and rejecting unsupported or malformed header values before packet
+  analysis. Changed `packetlens/pcap.py`, `packetlens/cli.py`,
+  `tests/test_pcap_and_parsers.py`, `README.md`, and this roadmap.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -v` — exit 0; 87 tests run, 0 failed,
+    18 skipped.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: The focused boundary tests cover empty captures, supported and
+  unsupported link types, version checks, truncation, timestamp fractions, snaplen checks,
+  and CLI rejection paths. The full suite passes with only the known optional-dependency
+  skips.
+- Remaining risks or unverified assumptions: M2 validates classic-PCAP correctness
+  boundaries but does not establish Windows 11 support or complete M0 target definition.
+  M3 reliability and M4 security review remain outstanding.
+- Next task: Resolve M0 deployment-target decisions and continue with M3 reliability work.
 
 ### Progress-entry template
 
