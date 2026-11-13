@@ -53,6 +53,16 @@ class GeneratedDocumentationTests(unittest.TestCase):
         self.assertIn("## 4. Operator Workload and Resource Usage Review", protocol)
         self.assertIn("## 5. Operational Checklists", protocol)
 
+    def test_release_gate_exists_and_contains_criteria_and_risks(self):
+        gate = (ROOT / "docs" / "RELEASE_GATE.md").read_text(encoding="utf-8")
+        self.assertIn("## 1. Executive Summary & Target Scope Boundary", gate)
+        self.assertIn("## 2. Release Gate Criteria Matrix", gate)
+        self.assertIn("## 3. Operational & Security Review Findings", gate)
+        self.assertIn("## 4. Residual Risk Register", gate)
+        self.assertIn("## 5. Go / No-Go Decision Framework & Maintainer Sign-Off", gate)
+        self.assertIn("RR-01", gate)
+        self.assertIn("RR-08", gate)
+
 
 if __name__ == "__main__":
     unittest.main()
