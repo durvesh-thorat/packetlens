@@ -286,12 +286,20 @@ class ReliabilityAndObservabilityTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(backup_path))
 
         prune_res = subprocess.run(
-            [sys.executable, "-m", "packetlens", "store", "prune", "--db", self.db_path, "--days", "90"],
+            [sys.executable, "-m", "packetlens", "store", "prune", "--db", self.db_path, "--days", "30"],
             cwd=ROOT, capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(prune_res.returncode, 0, prune_res.stderr)
         payload = json.loads(prune_res.stdout)
         self.assertEqual(payload["deleted"]["incidents"], 1)
+        self.assertEqual(payload["days"], 30.0)
+
+        prune_default = subprocess.run(
+            [sys.executable, "-m", "packetlens", "store", "prune", "--db", self.db_path],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(prune_default.returncode, 0, prune_default.stderr)
+        self.assertEqual(json.loads(prune_default.stdout)["days"], 30.0)
 
         reopened = Store(self.db_path)
         try:

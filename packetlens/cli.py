@@ -359,7 +359,7 @@ def main(argv=None):
     v.set_defaults(fn=cmd_store)
     v = store_sub.add_parser("prune", help="remove closed/expired records older than --days")
     v.add_argument("--db", required=True)
-    v.add_argument("--days", type=float, default=90.0)
+    v.add_argument("--days", type=float, default=30.0)
     v.set_defaults(fn=cmd_store)
 
     command_args = list(sys.argv[1:] if argv is None else argv)

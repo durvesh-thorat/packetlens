@@ -11,4 +11,5 @@ cicids2017_traffic_label/
 temp.py
 results/*.pcap
 review/
+captures/
 .agents/
