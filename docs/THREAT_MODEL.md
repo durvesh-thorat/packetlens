@@ -16,7 +16,7 @@ This threat model applies strictly to the M0 target environment:
 | Asset | Sensitivity | Storage / Exposure |
 |---|---|---|
 | Raw PCAP captures | High (addresses, DNS names, payloads) | Local filesystem supplied by operator |
-| `packetlens.db` (SQLite + WAL/SHM) | High (incidents, host peers, DNS/alert details) | Local filesystem; 90-day closed-record retention |
+| `packetlens.db` (SQLite + WAL/SHM) | High (incidents, host peers, DNS/alert details) | Local filesystem; 30-day closed-record retention |
 | Dashboard session token | Medium-High (authorizes `ack`/`close` transitions) | Printed to terminal stdout; injected into `index.html` `<meta>` with `Cache-Control: no-store` |
 | Standalone HTML reports | High (exported incidents, hosts, policies) | Local HTML files exported via `packetlens report` |
 
@@ -55,8 +55,8 @@ This threat model applies strictly to the M0 target environment:
 - File-system confidentiality of `packetlens.db`, captures, and HTML reports relies on
   Windows 11 user profile NTFS permissions (operators must store captures and databases
   only in user-private directories).
-- Retention pruning (`packetlens store prune --db ... --days 90`) removes closed records
-  older than 90 days while retaining open/acknowledged incidents for triage.
+- Retention pruning (`packetlens store prune --db ... --days 30`) removes closed records
+  older than 30 days while retaining open/acknowledged incidents for triage.
 
 ## 5. Residual Risks (For Human Reviewer / Maintainer Decision)
 

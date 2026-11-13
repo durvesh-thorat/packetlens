@@ -134,7 +134,7 @@ To prevent alert fatigue and maintain operational readiness:
 
 | Metric | Target / Healthy Bound | Degraded Warning Threshold | Critical Alert Limit | Remediation Action |
 |---|---|---|---|---|
-| **Process RSS Memory** | < 75 MB | >= 100 MB | >= 150 MB | Prune historical records older than 90 days (`packetlens store prune`). |
+| **Process RSS Memory** | < 75 MB | >= 100 MB | >= 150 MB | Prune historical records older than 30 days (`packetlens store prune`). |
 | **Engine Ingestion Rate** | > 50,000 pkts/s | < 25,000 pkts/s | < 10,000 pkts/s | Check disk I/O bottlenecks; ensure PCAP is on local SSD. |
 | **Per-Packet Latency** | < 25 µs avg | > 50 µs avg | > 100 µs avg | Investigate active rule complexity or flow table depth. |
 | **Store Queue Depth** | < 1,000 items | >= 5,000 items | >= 8,000 items | SQLite write contention; run batch analysis via `packetlens analyze`. |

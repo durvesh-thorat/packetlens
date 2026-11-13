@@ -23,20 +23,20 @@ analysis and threat detection suite for a single operator workstation:
 - **Input Data Format:** Strictly parses classic PCAP v2.4 captures (Ethernet linktype `1` and
   Linux cooked linktype `113`) up to a maximum file size bound of 2 GB.
 - **Persistence & Retention:** Embedded SQLite storage in Write-Ahead Logging (`WAL`) mode with
-  bounded memory queue (`QUEUE_CAPACITY = 10,000`), automated 90-day retention pruning, and
+  bounded memory queue (`QUEUE_CAPACITY = 10,000`), automated 30-day retention pruning, and
   WAL-safe backup (`packetlens store backup`).
 
 ### 1.2 Production Readiness Scorecard
 | Milestone | Description | Technical Status | Gate Compliance |
 |---|---|---|---|
-| **M0** | Target Scope & Performance Targets | **COMPLETE** | 99,874 pps throughput (> 50,000 pps target); synthetic precision 1.00; 90-day retention. |
-| **M1** | Environment Baseline Verification | **COMPLETE** | Dev Container & Windows 11 host baselines captured; clean standard library profile. |
-| **M2** | Strict PCAP Boundaries & Validation | **COMPLETE** | Strict classic PCAP v2.4 parser; explicit rejection of truncated headers, payload bounds, and malformed frames. |
-| **M3** | Observability & SQLite Reliability | **COMPLETE** | WAL mode, graceful shutdown queue drain, drop tracking, health endpoint (`GET /api/health`), store backup/prune. |
-| **M4** | Security Hardening & Threat Model | **COMPLETE** | Threat model (`docs/THREAT_MODEL.md`), loopback binding guard, token-authenticated POST, CSP, `X-Frame-Options: DENY`, symlink rejection. |
-| **M5** | Detection Quality Validation | **COMPLETE** | Held-out multi-seed validation, bootstrap 95% CIs, volumetric experimental marking, 12 Hugging Face real PCAPs (0 non-experimental FPs on 466k packets). |
-| **M6** | Controlled Pilot Preparation | **COMPLETE** | Operations runbook (`docs/OPERATIONS.md`), pilot protocol (`docs/PILOT_PROTOCOL.md`), tshark cross-tool methodology, operator SLA < 3 min. |
-| **M7** | Production Release Gate & Decision | **COMPLETE** | Release criteria matrix, residual risk register (RR-01..RR-08), go/no-go sign-off framework (`docs/RELEASE_GATE.md`). |
+| **M0** | Target Scope & Performance Targets | **READY FOR REVIEW** | Tested up to 99,874 pps throughput (offline target >= 50,000 pps); synthetic precision 1.00; 30-day retention; pending maintainer sign-off. |
+| **M1** | Environment Baseline Verification | **READY FOR REVIEW** | Dev Container & Windows 11 host baselines captured; clean standard library profile; pending maintainer review. |
+| **M2** | Strict PCAP Boundaries & Validation | **READY FOR REVIEW** | Strict classic PCAP v2.4 parser; explicit rejection of truncated headers, payload bounds, and malformed frames; pending maintainer review. |
+| **M3** | Observability & SQLite Reliability | **READY FOR REVIEW** | WAL mode, graceful shutdown queue drain, drop tracking, health endpoint (`GET /api/health`), store backup/prune (30-day retention); pending maintainer review. |
+| **M4** | Security Hardening & Threat Model | **READY FOR REVIEW** | Threat model (`docs/THREAT_MODEL.md`), loopback binding guard, token-authenticated POST, CSP, `X-Frame-Options: DENY`, symlink rejection; DEC-2026-11-12-m4 PROPOSED. |
+| **M5** | Detection Quality Validation | **READY FOR REVIEW** | Held-out multi-seed validation, bootstrap 95% CIs, volumetric experimental marking, 12 Hugging Face real PCAPs (0 non-experimental FPs on 466k packets); DEC-2026-11-12-m5 PROPOSED. |
+| **M6** | Controlled Pilot Preparation | **IN PROGRESS: pilot capture running** | Pilot capture running (1h Wi-Fi/hotspot traffic with dumpcap to `C:\packetlens\captures\hotspot-1h.pcap`, never committed); operations runbook & pilot protocol prepared; DEC-2026-11-12-m6 PROPOSED. |
+| **M7** | Production Release Gate & Decision | **NOT STARTED: waits for M6 results and my decisions** | Release criteria matrix, residual risk register (RR-01..RR-08), go/no-go sign-off framework prepared; waits for M6 results and maintainer decisions; DEC-2026-11-12-m7 PROPOSED. |
 
 ---
 
@@ -48,7 +48,7 @@ analysis and threat detection suite for a single operator workstation:
 | **Static Code Quality** | Static JavaScript code passes node syntax check without errors. | `node --check packetlens/static/app.js` (exit code 0). | **PASS** |
 | **Repository Hygiene** | Zero whitespace or line-ending anomalies across codebase. | `git -c core.whitespace=cr-at-eol diff --check` (exit code 0). | **PASS** |
 | **Artifact Size Boundary** | Zero tracked repository files exceed 5 MiB limit. | Git tracked file size scan across all branches. | **PASS** |
-| **Throughput & Speed** | Offline PCAP analysis pipeline sustains >= 50,000 packets/sec on Windows 11. | Benchmark: 99,874 pps sustained offline throughput on Windows 11 host. | **PASS** |
+| **Throughput & Speed** | Offline PCAP analysis pipeline sustains >= 50,000 packets/sec on Windows 11 without store queue drops. | Benchmark: tested up to 99,874 pps sustained offline throughput on Windows 11 host (offline processing target >= 50,000 pps without store queue drops; never guaranteed). | **PASS** |
 | **Memory Ceiling** | Process working set memory remains strictly under 150 MB RSS during continuous replay. | Win32 process memory monitoring via `/api/health` shows 35–75 MB baseline. | **PASS** |
 | **Storage Reliability** | Asynchronous SQLite store handles overload without crashes, data corruption, or deadlock. | `tests/test_reliability.py` (WAL mode, bounded queue, drops tracking, backup/prune). | **PASS** |
 | **Network Security** | Unauthenticated remote access prevented; HTTP server refuses non-loopback binding by default. | `tests/test_security.py` (loopback enforcement, origin token checks, CSP `script-src 'none'`). | **PASS** |

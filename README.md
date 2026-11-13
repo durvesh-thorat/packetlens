@@ -50,7 +50,7 @@ exports a standalone HTML report.
   and source/destination allowlists. The packaged default is
   [`packetlens/policies/default.json`](packetlens/policies/default.json); a unit test checks this reference and
   validates the file.
-* **Persistence and review — available:** bounded SQLite storage, incident status workflow, host summaries,
+* **Persistence and review — available:** bounded SQLite storage (30-day retention default for closed records), incident status workflow, host summaries,
   dashboard, and self-contained HTML reports.
 * **Synthetic evaluation — available:** seeded labelled packet generation, detector evaluation, and throughput
   benchmark.
@@ -115,6 +115,30 @@ that the labels are valid or that the model generalizes.
 
 See the [evaluation protocol](docs/EVALUATION_PROTOCOL.md) for tasks, splits, false-alarm budgets, label audits, and
 bootstrap intervals, and [limitations](docs/LIMITATIONS.md) for evidence boundaries.
+
+## Research results (offline)
+
+Machine learning in PacketLens is strictly an **offline research module**. It is not part of the supported product, and no new ML work is planned. The core supported product is rule-based detection plus the EWMA volume detector.
+
+The flow-level machine learning experiments (`packetlens/flows.py`, `packetlens/flowmodel.py`, `packetlens/ml.py`) evaluate offline models (Isolation Forest, Random Forest, Granite Time Series) on historical CIC-IDS2017 flow tables. They are not part of the live or offline packet processing pipeline. A future repository reorganisation is proposed to move these research scripts into a dedicated `research/` or `experiments/` directory to decouple research experiments from core package code.
+
+Key offline research findings:
+* **Duplicate contamination:** Initial high benchmark scores on CIC-IDS2017 flow data were driven by exact duplicate records between train and test splits (e.g. 98.9% duplicate rate on PortScan). Duplicate-free evaluation shows significantly lower recall on clean test sets.
+* **Feature attribution:** Classifiers relied heavily on flow identification features rather than generalizable traffic patterns.
+* **Granite time series:** Evaluated on the single per-minute flow series; first 90 attack bins are unscored due to context length requirements.
+
+Full methodology, audit details, and caveats are documented in [docs/RESULTS.md](docs/RESULTS.md), [docs/EVALUATION_PROTOCOL.md](docs/EVALUATION_PROTOCOL.md), and [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+
+## Known limitations
+
+* **Capture format:** Classic PCAP (version 2.4, nanosecond or microsecond timestamps) with Ethernet (link type 1) and Linux cooked (link type 113) frames only. Pcapng and other link types are rejected before packet reads and must be converted externally (e.g. `editcap -F pcap`).
+* **Platform scope:** Designed and tested for on-demand offline analysis and replay on a single Windows 11 workstation. Windows live packet capture driver is not supported (live capture requires Linux `AF_PACKET`).
+* **Tested throughput:** Offline pipeline tested up to 99,874 packets/s on Windows 11 (in-memory parse tested up to 250,014 packets/s; target is >= 50,000 packets/s without store queue drops; never guaranteed).
+* **Detection boundaries:** Default signature rules cover TCP SYN port scans, SYN floods, DNS tunneling, ARP spoofing, and horizontal scans. Non-SYN scans (FIN, NULL, Xmas, UDP), DNS rate floods, and Slowloris are outside packet signature coverage.
+* **Volumetric anomaly detection:** The EWMA volume detector (`EwmaZScoreDetector`) is marked experimental in `packetlens/policies/default.json` due to false alarms on bursty benign traffic (7.0 FP/hr synthetic, 196.8 FP/hr on bursty PCAP).
+* **Network security:** The local HTTP dashboard server is unencrypted and enforces loopback-only binding (`127.0.0.1:8000`). Remote network exposure requires an operator-configured TLS reverse proxy with mutual authentication.
+* **Data retention:** Local SQLite database with Write-Ahead Logging. Closed incidents, alerts, minute metrics, and capture summaries default to 30-day retention pruning (`packetlens store prune --days 30`). Active and open incidents are preserved.
+* **Research ML boundary:** Machine learning classifiers are offline research modules only and are excluded from the supported monitoring product.
 
 ## Security and authorized use
 

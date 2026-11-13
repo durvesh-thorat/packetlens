@@ -133,7 +133,7 @@ The dashboard topbar displays real-time health indicators reflecting `service_st
 PacketLens tracks resident set memory on Windows via standard Win32 process memory queries.
 - **Baseline Memory:** Typically 35 MB to 75 MB working set under normal pilot operation.
 - **Threshold Limit:** 150 MB RSS.
-- **Remediation if RSS > 150 MB:** If memory approaches 150 MB, check incident count in `packetlens.db` and prune closed incidents older than 90 days. If memory continues to grow, verify flow table cardinality in custom rules.
+- **Remediation if RSS > 150 MB:** If memory approaches 150 MB, check incident count in `packetlens.db` and prune closed incidents older than 30 days. If memory continues to grow, verify flow table cardinality in custom rules.
 
 ---
 
@@ -237,11 +237,11 @@ python -c "import sqlite3; c = sqlite3.connect('backups/packetlens_backup.db'); 
    python -m packetlens incidents list --db packetlens.db
    ```
 
-### 5.4 90-Day Retention Pruning
-Per M0 policy, closed incidents, resolved alerts, minute metrics, and capture runs older than 90 days must be pruned periodically to prevent unbounded disk growth. Active (`open` and `acknowledged`) incidents are strictly preserved:
+### 5.4 30-Day Retention Pruning
+Per M0 policy, closed incidents, resolved alerts, minute metrics, and capture runs older than 30 days must be pruned periodically to prevent unbounded disk growth. Active (`open` and `acknowledged`) incidents are strictly preserved:
 
 ```powershell
-python -m packetlens store prune --db packetlens.db --days 90
+python -m packetlens store prune --db packetlens.db --days 30
 ```
 
 ---
