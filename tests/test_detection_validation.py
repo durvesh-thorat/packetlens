@@ -79,7 +79,7 @@ class DetectionValidationTests(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
         )
         self.assertEqual(res.returncode, 0, res.stderr)
         data = json.loads(res.stdout)

@@ -1,6 +1,5 @@
 import json
 import os
-import queue
 import subprocess
 import sys
 import tempfile
@@ -219,7 +218,8 @@ class StoreTests(unittest.TestCase):
         self.assertNotEqual(first, second)
 
     def test_full_queue_drops_and_counts_writes(self):
-        self.store._queue = queue.Queue(maxsize=1)
+        self.store.close()
+        self.store = Store(self.path, queue_capacity=1)
         entered, release = threading.Event(), threading.Event()
         self.store._enqueue(lambda connection: (entered.set(), release.wait(5)))
         self.assertTrue(entered.wait(2))
