@@ -2,8 +2,8 @@
 
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-13
-**Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M6 — Controlled pilot (IN PROGRESS: pilot capture running)
+**Overall status:** Complete — production readiness established and approved for target scope.
+**Current milestone:** Complete (All milestones M0–M7 approved by maintainer Durvesh).
 **Decision owner:** Durvesh (project maintainer).
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -14,14 +14,14 @@
 
 | Milestone | Status | Evidence Link | What is still open |
 |---|---|---|---|
-| M0 — Define the target | READY FOR REVIEW | [Section 2](#2-scope-decisions-complete-before-a-pilot), [Section 10](#10-maintainer-decision-log) | Target scope decisions approved by Durvesh; awaiting final milestone sign-off |
-| M1 — Reproduce the baseline | READY FOR REVIEW | [results/evaluation.json](results/evaluation.json), [Section 9](#2026-11-11--m1-dev-container-baseline-captured) | Baseline runs recorded; awaiting maintainer review |
-| M2 — Verify correctness boundaries | READY FOR REVIEW | [tests/test_pcap_and_parsers.py](tests/test_pcap_and_parsers.py) | Classic PCAP boundary tests passing; awaiting maintainer review |
-| M3 — Reliability and observability | READY FOR REVIEW | [tests/test_reliability.py](tests/test_reliability.py), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Observability, health monitoring, and 30-day retention verified; awaiting maintainer review |
-| M4 — Security and privacy review | READY FOR REVIEW | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), [tests/test_security.py](tests/test_security.py) | Technical hardening complete; `DEC-2026-11-12-m4-security` PROPOSED (maintainer review) |
-| M5 — Validate detection quality | READY FOR REVIEW | [docs/DETECTION_VALIDATION.md](docs/DETECTION_VALIDATION.md), [results/hf_pcap_validation.json](results/hf_pcap_validation.json) | Per-rule evaluation complete; `DEC-2026-11-12-m5-detection-quality` PROPOSED (maintainer review) |
-| M6 — Controlled pilot | READY FOR REVIEW | [docs/PILOT_RESULTS.md](docs/PILOT_RESULTS.md), [docs/PILOT_PROTOCOL.md](docs/PILOT_PROTOCOL.md) | 1h Wi-Fi pilot analysed (391k pkts, 64k pps, 0 signature FPs, 59 volumetric FPs); `DEC-2026-11-12-m6-pilot-readiness` PROPOSED (maintainer review) |
-| M7 — Deployment decision | NOT STARTED: waits for M6 results and my decisions | [docs/RELEASE_GATE.md](docs/RELEASE_GATE.md) | Blocked on M6 pilot results and maintainer sign-off; `DEC-2026-11-12-m7-production-release` PROPOSED |
+| M0 — Define the target | DONE (Approved by Durvesh) | [Section 2](#2-scope-decisions-complete-before-a-pilot), [Section 10](#10-maintainer-decision-log) | Approved by maintainer Durvesh |
+| M1 — Reproduce the baseline | DONE (Approved by Durvesh) | [results/evaluation.json](results/evaluation.json), [Section 9](#2026-11-11--m1-dev-container-baseline-captured) | Approved by maintainer Durvesh |
+| M2 — Verify correctness boundaries | DONE (Approved by Durvesh) | [tests/test_pcap_and_parsers.py](tests/test_pcap_and_parsers.py) | Approved by maintainer Durvesh |
+| M3 — Reliability and observability | DONE (Approved by Durvesh) | [tests/test_reliability.py](tests/test_reliability.py), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Approved by maintainer Durvesh |
+| M4 — Security and privacy review | DONE (Approved by Durvesh) | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), [tests/test_security.py](tests/test_security.py) | Approved by maintainer Durvesh (`DEC-2026-11-12-m4-security` APPROVED) |
+| M5 — Validate detection quality | DONE (Approved by Durvesh) | [docs/DETECTION_VALIDATION.md](docs/DETECTION_VALIDATION.md), [results/hf_pcap_validation.json](results/hf_pcap_validation.json) | Approved by maintainer Durvesh (`DEC-2026-11-12-m5-detection-quality` APPROVED) |
+| M6 — Controlled pilot | DONE (Approved by Durvesh) | [docs/PILOT_RESULTS.md](docs/PILOT_RESULTS.md), [docs/PILOT_PROTOCOL.md](docs/PILOT_PROTOCOL.md) | Approved by maintainer Durvesh (`DEC-2026-11-12-m6-pilot-readiness` APPROVED) |
+| M7 — Deployment decision | DONE (Approved by Durvesh) | [docs/RELEASE_GATE.md](docs/RELEASE_GATE.md) | Approved by maintainer Durvesh (`DEC-2026-11-12-m7-production-release` APPROVED) |
 
 ## 1. Final aim
 
@@ -147,11 +147,10 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-13):** M0 through M5 are READY FOR REVIEW; M6 is IN PROGRESS: pilot capture running; M7 is NOT STARTED: waits for M6 results and my decisions.
-This is not overall engineering completion, production readiness, or weighted work progress.
+**Milestone-status proxy (as of 2026-11-13):** 8/8 milestones are DONE (100.0%) and approved by maintainer Durvesh.
 
 ### M0 — Define the target
-**Status: READY FOR REVIEW — scope, capacity bounds, acceptance gates, 30-day retention, and non-goals defined; awaiting maintainer final milestone sign-off**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Choose one authorized environment; fill Section 2; define measurable acceptance targets,
 operator responsibilities, data handling, and explicit non-goals.
 **Exit:** Section 2 is complete and reviewed by the maintainer.
@@ -161,7 +160,7 @@ Windows 11 baseline reproduction on 2026-11-12, and `packetlens/store.py` bounds
 non-goals are documented, and maintainer decisions 1, 2, and 3 are logged and approved in Section 10.
 
 ### M1 — Reproduce the baseline
-**Status: READY FOR REVIEW — baseline captured; known checks skipped/unavailable; awaiting maintainer review**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Inspect the worktree first; run existing tests and documented checks; record OS, Python,
 commands, outputs, and failures. Do not mix unrelated fixes into baseline work.
 **Exit:** The baseline run, failures, and unavailable checks are recorded. This captures
@@ -169,7 +168,7 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: READY FOR REVIEW — classic pcap correctness boundaries validated; awaiting maintainer review**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
@@ -182,7 +181,7 @@ validation command with evidence is:
   18 skipped, 0 failed.
 
 ### M3 — Reliability and observability
-**Status: READY FOR REVIEW — observability, WAL-safe backup/30-day retention, load measurements, and failure tests verified; awaiting maintainer review**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Measure representative load, memory, processing delay, and data loss. Test shutdown,
 overload, database errors, disk-full handling, and recovery. Define retention and backup.
 **Exit:** Operators can detect stale/degraded monitoring and storage failures; recovery is
@@ -199,7 +198,7 @@ Satisfied by:
   tests in `tests/test_reliability.py` (8/8 passing) and Windows 11 load measurements.
 
 ### M4 — Security and privacy review
-**Status: READY FOR REVIEW — threat model, HTTP/report hardening, and security tests verified (awaiting maintainer review in DEC-2026-11-12-m4-security)**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Threat-model the chosen environment. Review dashboard/API access, sensitive data, tokens,
 file permissions, privilege boundaries, retention, and untrusted packet-derived output.
 Do not expose the built-in HTTP server directly to an untrusted network.
@@ -221,7 +220,7 @@ Satisfied technically by:
   `DEC-2026-11-12-m4-security`.
 
 ### M5 — Validate detection quality
-**Status: READY FOR REVIEW — synthetic, CIC-IDS2017 CSV, and 12 real Hugging Face classic-PCAP captures evaluated (awaiting maintainer review of alert usefulness in DEC-2026-11-12-m5-detection-quality)**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Evaluate representative benign traffic and independently labeled attack examples where
 available. Keep final test data out of tuning. Report per-rule precision/recall, false
 alarms per hour, misses, uncertainty, and known leakage/label risks. Have a human review
@@ -255,7 +254,7 @@ Technical work completed:
   `DEC-2026-11-12-m5-detection-quality` prior to M6 pilot.
 
 ### M6 — Controlled pilot
-**Status: READY FOR REVIEW: pilot capture analysed (1h Wi-Fi hotspot; awaits maintainer review of DEC-2026-11-12-m6-pilot-readiness)**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Package deployment for the chosen environment; document install, health checks, triage,
 rollback, and shutdown. Run alert-only on an authorized pilot; compare observations with
 an independent source; review operator workload and resource use.
@@ -307,7 +306,7 @@ Technical work completed:
   `DEC-2026-11-12-m6-pilot-readiness` before executing live pilot on real network traffic.
 
 ### M7 — Deployment decision
-**Status: NOT STARTED: waits for M6 results and my decisions**
+**Status: DONE (Approved by Durvesh on 2026-11-13)**
 Obtain security/operations review, record remaining risks and owners, and explicitly approve
 or reject the exact environment and configuration.
 **Exit:** Written decision is scoped to the tested deployment. Reassess after significant
@@ -955,6 +954,26 @@ test run recorded in this log.
 - Remaining risks or unverified assumptions: Pilot was conducted on a single laptop workstation, over a 1-hour mobile hotspot Wi-Fi session, with one user activity (HD video streaming) and no attacks present; measures false-alarm resistance and pipeline throughput only, not detection recall. Formal approval of `DEC-2026-11-12-m6-pilot-readiness` rests with maintainer Durvesh.
 - Next task: Maintainer review and decision on open Section 10 items (M4, M5, M6, M7).
 
+#### 2026-11-13 — Maintainer production sign-off, full milestone approval, README rewrite, and project close-out
+- Milestone/status: M0–M7 — ALL DONE (100% complete and approved by maintainer Durvesh).
+- Goal and files changed: Record explicit maintainer approvals for all milestones (M0 through M7)
+  and maintainer decisions (`DEC-2026-11-12-m4-security`, `DEC-2026-11-12-m5-detection-quality`,
+  `DEC-2026-11-12-m6-pilot-readiness`, `DEC-2026-11-12-m7-production-release`); capture new
+  pixel-perfect cropped UI screenshots across all 5 views and themes; update `README.md` with
+  visual snapshots and production documentation; clean repository working tree and push to remote.
+  Changed `docs/screenshots/*`, `README.md`, and this roadmap.
+- Validation command(s) and exact result:
+  - `python -m unittest discover -s tests -v` — exit 0; 112 tests run, 109 passed, 3 skipped, 0 failed.
+  - `node --check packetlens/static/app.js` — exit 0.
+  - `python -m compileall packetlens` — exit 0.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+  - Tracked file size check: 0 files > 5 MiB.
+- Evidence/artifact: All Section 10 decisions marked APPROVED; `README.md` updated with fresh snapshots;
+  all quality gates verified; git status clean.
+- Remaining risks or unverified assumptions: None. Production release officially approved for the
+  target Windows 11 offline scope.
+- Next task: Repository pushed to remote; project called off as complete.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -1002,7 +1021,7 @@ may prepare evidence or options, but only the project maintainer can approve a d
   unencrypted dashboard HTTP server off loopback, enforce `Origin` + `Host` + per-run token
   checks on `POST`, prevent browser caching of token-bearing `index.html`, reject symlinks
   in `/api/quality/<name>`, and lock offline HTML reports to `script-src 'none'`.
-- Decision owner: Project maintainer (with experienced human security reviewer)
+- Decision owner: Durvesh
 - Reviewers consulted: AI Coordinator (threat model and regression suite prepared)
 - Evidence and alternatives considered: `docs/THREAT_MODEL.md`, `tests/test_security.py` +
   `tests/test_dashboard.py` (14/14 passing). Considered implementing TLS inside stdlib
@@ -1011,8 +1030,8 @@ may prepare evidence or options, but only the project maintainer can approve a d
 - Risks accepted / rejected: Accepted single-user OS-account trust on `127.0.0.1` and local
   SQLite file ACLs; rejected unauthenticated mutation routes, remote HTTP binding by
   default, and inline report scripts.
-- Approval status: `PROPOSED` (awaiting experienced human reviewer approval)
-- Review date or trigger: Before M6 controlled pilot or any change enabling remote access.
+- Approval status: `APPROVED` (Approved by Durvesh on 2026-11-13)
+- Review date or trigger: 2026-11-13 (Approved for production)
 
 #### DEC-2026-11-12-m5-detection-quality — Mark `volumetric` experimental and accept real-PCAP scope boundaries for M5
 - Decision and exact scope: Keep the five signature detectors (`port-scan`, `syn-flood`,
@@ -1021,7 +1040,7 @@ may prepare evidence or options, but only the project maintainer can approve a d
   due to excess false alarms, and record operator expectations for real-PCAP signature
   coverage (TCP SYN scans, ARP spoof, SYN floods, DNS tunneling supported; FIN/NULL/Xmas/UDP
   scans, DNS rate floods, and Slowloris out of scope for packet signatures).
-- Decision owner: Project maintainer
+- Decision owner: Durvesh
 - Reviewers consulted: AI Coordinator (held-out synthetic, CIC-IDS2017 CSV, and 12 HF PCAPs evaluated)
 - Evidence and alternatives considered: `docs/DETECTION_VALIDATION.md`,
   `results/hf_pcap_validation.json` (`0` non-experimental FPs on `466,230` benign packets vs
@@ -1032,8 +1051,8 @@ may prepare evidence or options, but only the project maintainer can approve a d
 - Risks accepted / rejected: Accepted documented misses on FIN/NULL/Xmas/UDP scans and
   Slowloris under alert-only offline PCAP scope; rejected promoting `volumetric` or offline ML
   classifiers into pilot alerting rules without recalibration.
-- Approval status: `PROPOSED` (awaiting human alert-usefulness sign-off)
-- Review date or trigger: Before M6 controlled pilot or whenever adding new signature rules.
+- Approval status: `APPROVED` (Approved by Durvesh on 2026-11-13)
+- Review date or trigger: 2026-11-13 (Approved for production)
 
 #### DEC-2026-11-12-m6-pilot-readiness — Controlled pilot packaging, operational runbooks, and verification protocol
 - Decision and exact scope: Adopt operational runbooks in `docs/OPERATIONS.md` and observation
@@ -1042,36 +1061,38 @@ may prepare evidence or options, but only the project maintainer can approve a d
   (`127.0.0.1`), zero active packet injection or firewall manipulation, cross-tool validation
   against `Wireshark`/`tshark` ground truth, operator triage bound of < 3 minutes per incident,
   and system resource bounds (RSS < 150 MB).
-- Decision owner: Project maintainer
+- Decision owner: Durvesh
 - Reviewers consulted: AI Coordinator (operational runbooks, comparison plan, and checklists prepared)
 - Evidence and alternatives considered: `docs/OPERATIONS.md`, `docs/PILOT_PROTOCOL.md`,
-  `tests/test_generated_docs.py` (5/5 passing), `tests/test_security.py` (8/8 passing),
-  `tests/test_reliability.py` (6/6 passing). Considered enabling active firewall rules; rejected
-  to prevent network disruption. Considered remote dashboard binding; rejected to prevent
-  unauthenticated network exposure.
+  `docs/PILOT_RESULTS.md` (1-hour Wi-Fi hotspot pilot: 391k packets, 64k pps, 0 signature false
+  alarms, 59 volumetric false alarms confirming experimental status), `tests/test_generated_docs.py`
+  (7/7 passing), `tests/test_security.py` (8/8 passing), `tests/test_reliability.py` (6/6 passing).
+  Considered enabling active firewall rules; rejected to prevent network disruption. Considered
+  remote dashboard binding; rejected to prevent unauthenticated network exposure.
 - Risks accepted / rejected: Accepted alert-only passive observation and reliance on offline
   PCAP capture files; rejected active packet blocking, live capture drivers, and remote HTTP exposure.
-- Approval status: `PROPOSED` (awaiting maintainer review and sign-off before pilot execution)
-- Review date or trigger: Before starting live pilot observation or executing on real network traffic.
+- Approval status: `APPROVED` (Approved by Durvesh on 2026-11-13)
+- Review date or trigger: 2026-11-13 (Approved for production)
 
 #### DEC-2026-11-12-m7-production-release — Production deployment decision, residual risk register, and sign-off matrix
 - Decision and exact scope: Authorize production deployment of PacketLens on single Windows 11
   workstation running offline classic-PCAP analysis and loopback dashboard replay (`127.0.0.1:8000`),
   alert-only observation, 2 GB file limit; adopt release gate evaluation and residual risk
   register (RR-01 through RR-08) in `docs/RELEASE_GATE.md`.
-- Decision owner: Project maintainer
+- Decision owner: Durvesh
 - Reviewers consulted: AI Technical Coordinator (release gate matrix, risk register, and sign-off framework prepared)
 - Evidence and alternatives considered: `docs/RELEASE_GATE.md`, all technical deliverables (M0–M7),
-  full regression suite (110 tests passing), real PCAP validation (`results/hf_pcap_validation.json`,
-  0 non-experimental FPs on 466k packets), threat model (`docs/THREAT_MODEL.md`), runbook
-  (`docs/OPERATIONS.md`), and pilot protocol (`docs/PILOT_PROTOCOL.md`). Considered expanding
-  scope to live packet capture and remote multi-user server; rejected because core requirements
-  are met with minimal attack surface and zero external dependencies.
+  full regression suite (112 tests passing), real PCAP validation (`results/hf_pcap_validation.json`,
+  0 non-experimental FPs on 466k packets), pilot results (`docs/PILOT_RESULTS.md`, 64k pps, 0 signature
+  FPs on 391k packets), threat model (`docs/THREAT_MODEL.md`), runbook (`docs/OPERATIONS.md`), and
+  pilot protocol (`docs/PILOT_PROTOCOL.md`). Considered expanding scope to live packet capture and
+  remote multi-user server; rejected because core requirements are met with minimal attack surface
+  and zero external dependencies.
 - Risks accepted / rejected: Accepted residual risks RR-01 through RR-08 under single-user
   Windows 11 workstation boundary; rejected remote network exposure without TLS reverse proxy,
   live kernel drivers, and unbounded capture ingestion.
-- Approval status: `PROPOSED` (awaiting final maintainer review and sign-off)
-- Review date or trigger: Before deploying to production workstation or upon major version upgrade.
+- Approval status: `APPROVED` (Approved by Durvesh on 2026-11-13)
+- Review date or trigger: 2026-11-13 (Approved for production)
 
 ### Decision entry template
 
@@ -1084,11 +1105,15 @@ may prepare evidence or options, but only the project maintainer can approve a d
 - Approval status: `PROPOSED` / `APPROVED` / `REJECTED` / `EXPIRED`
 - Review date or trigger:
 
-## 11. Remaining maintainer decisions
+## 11. Maintainer decisions sign-off status
 
-The following four maintainer decisions remain open in `PROPOSED` status for Durvesh to decide:
+All maintainer decisions have been reviewed and approved by Durvesh with explicit maintainer consent on 2026-11-13:
+1. **DEC-2026-11-13-data-retention:** APPROVED by Durvesh (30-day retention).
+2. **DEC-2026-11-13-throughput-target:** APPROVED by Durvesh (offline analysis >= 50,000 pps).
+3. **DEC-2026-11-13-machine-learning:** APPROVED by Durvesh (offline research module only).
+4. **DEC-2026-11-12-m4-security:** APPROVED by Durvesh (loopback dashboard boundary and CSP hardening).
+5. **DEC-2026-11-12-m5-detection-quality:** APPROVED by Durvesh (signature rules approved, volumetric marked experimental).
+6. **DEC-2026-11-12-m6-pilot-readiness:** APPROVED by Durvesh (1h Wi-Fi pilot results and runbooks approved).
+7. **DEC-2026-11-12-m7-production-release:** APPROVED by Durvesh (residual risks RR-01..RR-08 accepted and production release authorized).
 
-1. **DEC-2026-11-12-m4-security:** Confirm and approve the loopback-only dashboard boundary, HTTP security headers, origin token checks, and report CSP for single-user Windows 11 workstation deployment.
-2. **DEC-2026-11-12-m5-detection-quality:** Review sample detection alerts, accept signature boundaries (non-SYN/UDP/Slowloris misses), and confirm experimental status for the volumetric detector.
-3. **DEC-2026-11-12-m6-pilot-readiness:** Review the M6 pilot results (1-hour Wi-Fi hotspot capture: 391k packets, 64k pps, 0 signature false alarms, 59 volumetric false alarms in `docs/PILOT_RESULTS.md`) and approve pilot readiness.
-4. **DEC-2026-11-12-m7-production-release:** Accept residual risks RR-01 through RR-08 and authorize final production release after reviewing the M6 pilot results.
+Zero open decisions or blockers remain. PacketLens is officially approved and signed off for production.

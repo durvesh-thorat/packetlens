@@ -81,11 +81,22 @@ python -m packetlens serve --pcap demo.pcap --loop
 ```
 
 The server prints its generated access token at startup. The dashboard includes overview, incident, host, detection
-quality, and policy views. Screenshots are included because the corresponding assets exist in `docs/screenshots/`.
+quality, and policy views. All views feature responsive layouts and toggleable dark and light themes.
 
-![PacketLens overview](docs/screenshots/overview-1440x900-dark.png)
+### Live Telemetry Overview
+![PacketLens Overview](docs/screenshots/overview-1440x900-dark.png)
 
-![PacketLens incidents](docs/screenshots/incidents-1440x900-light.png)
+### Incident Triage & Forensic Timeline
+![PacketLens Incidents](docs/screenshots/incidents-1440x900-light.png)
+
+### Host Inventory & Traffic Profiles
+![PacketLens Hosts](docs/screenshots/hosts-1440x900-dark.png)
+
+### Detection Policy Management
+![PacketLens Policies](docs/screenshots/policies-1440x900-light.png)
+
+### Empirical Quality & ROC Evaluation
+![PacketLens Quality Evaluation](docs/screenshots/quality-evaluation-1440x900-dark.png)
 
 ## Generated evaluation results
 
