@@ -63,6 +63,13 @@ class GeneratedDocumentationTests(unittest.TestCase):
         self.assertIn("RR-01", gate)
         self.assertIn("RR-08", gate)
 
+    def test_pilot_results_exists_and_contains_metrics(self):
+        results = (ROOT / "docs" / "PILOT_RESULTS.md").read_text(encoding="utf-8")
+        self.assertIn("391,244", results)
+        self.assertIn("64,097", results)
+        self.assertIn("volumetric", results)
+        self.assertIn("## 6. Known Limitations & Non-Generalization Boundaries", results)
+
 
 if __name__ == "__main__":
     unittest.main()

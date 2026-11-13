@@ -20,7 +20,7 @@
 | M3 — Reliability and observability | READY FOR REVIEW | [tests/test_reliability.py](tests/test_reliability.py), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Observability, health monitoring, and 30-day retention verified; awaiting maintainer review |
 | M4 — Security and privacy review | READY FOR REVIEW | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), [tests/test_security.py](tests/test_security.py) | Technical hardening complete; `DEC-2026-11-12-m4-security` PROPOSED (maintainer review) |
 | M5 — Validate detection quality | READY FOR REVIEW | [docs/DETECTION_VALIDATION.md](docs/DETECTION_VALIDATION.md), [results/hf_pcap_validation.json](results/hf_pcap_validation.json) | Per-rule evaluation complete; `DEC-2026-11-12-m5-detection-quality` PROPOSED (maintainer review) |
-| M6 — Controlled pilot | IN PROGRESS: pilot capture running | [docs/PILOT_PROTOCOL.md](docs/PILOT_PROTOCOL.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Maintainer capturing 1h Wi-Fi/hotspot traffic (`captures/hotspot-1h.pcap`); pilot replay & analysis pending completion; `DEC-2026-11-12-m6-pilot-readiness` PROPOSED |
+| M6 — Controlled pilot | READY FOR REVIEW | [docs/PILOT_RESULTS.md](docs/PILOT_RESULTS.md), [docs/PILOT_PROTOCOL.md](docs/PILOT_PROTOCOL.md) | 1h Wi-Fi pilot analysed (391k pkts, 64k pps, 0 signature FPs, 59 volumetric FPs); `DEC-2026-11-12-m6-pilot-readiness` PROPOSED (maintainer review) |
 | M7 — Deployment decision | NOT STARTED: waits for M6 results and my decisions | [docs/RELEASE_GATE.md](docs/RELEASE_GATE.md) | Blocked on M6 pilot results and maintainer sign-off; `DEC-2026-11-12-m7-production-release` PROPOSED |
 
 ## 1. Final aim
@@ -255,7 +255,7 @@ Technical work completed:
   `DEC-2026-11-12-m5-detection-quality` prior to M6 pilot.
 
 ### M6 — Controlled pilot
-**Status: IN PROGRESS: pilot capture running (Maintainer Durvesh is capturing one hour of personal Wi-Fi/hotspot traffic with dumpcap in classic pcap format to C:\packetlens\captures\hotspot-1h.pcap, never committed. Operational runbooks and pilot protocol prepared; pilot replay and analysis will be executed only after capture completion; zero fabricated pilot results).**
+**Status: READY FOR REVIEW: pilot capture analysed (1h Wi-Fi hotspot; awaits maintainer review of DEC-2026-11-12-m6-pilot-readiness)**
 Package deployment for the chosen environment; document install, health checks, triage,
 rollback, and shutdown. Run alert-only on an authorized pilot; compare observations with
 an independent source; review operator workload and resource use.
@@ -289,7 +289,19 @@ Technical work completed:
     (RSS memory < 150 MB, CPU utilization, store queue depth).
   - Operational checklists: pre-pilot readiness checklist, daily observation checklist, and
     pilot exit criteria checklist.
-- Added documentation regression tests in `tests/test_generated_docs.py` (5/5 passing).
+- Evaluated 1-hour real Wi-Fi hotspot capture (`captures/hotspot-1h.pcap`, classic PCAP v2.4,
+  412 MB, local only, never committed) conducted by maintainer Durvesh on laptop Wi-Fi during
+  normal HD YouTube streaming with 2–3 pause/resume cycles:
+  - `391,244` packets (405,939,402 bytes) parsed cleanly with `0` dumpcap drops and `0` malformed frames.
+  - Sustained offline analysis throughput of `64,097 packets/s` (+28.2% above M0 50,000 pps target)
+    with `0` store queue drops.
+  - Core signature detectors (`port-scan`, `syn-flood`, `dns-tunnel`, `arp-spoof`, `horizontal-scan`):
+    `0` alerts (0.0 FP/hr), satisfying the M0 pilot acceptance gate (<= 1.0 FP/hr).
+  - Volumetric detector: `59` alerts across `49` incidents (~59.4 FP/hr) triggered by video buffering
+    bursts, all classified as false alarms. Directly corroborates and reinforces maintainer decision
+    `DEC-2026-11-12-m5-detection-quality` marking `volumetric` as experimental.
+  - Comprehensive empirical findings, triage classification, and limitations recorded in `docs/PILOT_RESULTS.md`.
+- Added documentation regression tests in `tests/test_generated_docs.py` (7/7 passing).
 - Staged maintainer decision `DEC-2026-11-12-m6-pilot-readiness` as `PROPOSED` in Section 10.
 - **Remaining human gate:** Human maintainer review and sign-off on
   `DEC-2026-11-12-m6-pilot-readiness` before executing live pilot on real network traffic.
@@ -926,6 +938,23 @@ test run recorded in this log.
 - Remaining risks or unverified assumptions: Pilot capture (`captures/hotspot-1h.pcap`) is currently running and must be completed by maintainer Durvesh before analysis; Section 10 decisions `DEC-2026-11-12-m4-security`, `DEC-2026-11-12-m5-detection-quality`, `DEC-2026-11-12-m6-pilot-readiness`, and `DEC-2026-11-12-m7-production-release` remain PROPOSED for maintainer decision.
 - Next task: Wait for maintainer notification that 1-hour pilot capture is complete; then analyze `captures/hotspot-1h.pcap`, corroborate with Wireshark/tshark, and write pilot log with exact counts.
 
+#### 2026-11-13 — M6 real-traffic Wi-Fi hotspot pilot capture and analysis
+- Milestone/status: M6 — READY FOR REVIEW (pilot capture analyzed; awaiting maintainer review in Section 10).
+- Goal and files changed: Evaluate 1-hour real Wi-Fi hotspot capture (`captures/hotspot-1h.pcap`, 412 MB classic PCAP v2.4) recorded with dumpcap by maintainer Durvesh during normal HD YouTube streaming with 2–3 pause/resume cycles; corroborate packet counts, throughput, incident grouping, and classification against `captures/pilot-analyze.txt` and `captures/pilot.db`; document findings and non-generalization limits in `docs/PILOT_RESULTS.md`; update roadmap status and remaining maintainer decisions. Changed `docs/PILOT_RESULTS.md`, `tests/test_generated_docs.py`, and this roadmap.
+- Validation command(s) and exact result:
+  - Capture analysis: `391,244` packets, `405,939,402` bytes, `0` dumpcap drops, `0` malformed frames.
+  - Throughput: `64,097 packets/s` sustained offline analysis speed (+28.2% above M0 50,000 pps target), `0` store queue drops.
+  - Alert breakdown: `59` alerts, all `volumetric` (`49` correlated incidents, all false alarms triggered by video buffering surges); `0` alerts from signature detectors (`port-scan`, `syn-flood`, `dns-tunnel`, `arp-spoof`, `horizontal-scan`), meeting the M0 <= 1.0 FP/hr target.
+  - Corroboration: Strongly reinforces maintainer decision `DEC-2026-11-12-m5-detection-quality` marking `volumetric` as experimental.
+  - `python -m unittest tests/test_generated_docs.py -v` — exit 0; 7/7 tests passing.
+  - `python -m unittest discover -s tests -v` — exit 0; 111 tests run, 108 passed, 3 skipped, 0 failed.
+  - `node --check packetlens/static/app.js` — exit 0.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+  - `git ls-files captures/` — exit 0; zero capture files tracked.
+- Evidence/artifact: `docs/PILOT_RESULTS.md`, `tests/test_generated_docs.py`, Section 5 M6 entry, and `review/pilot_results.patch` (SHA-256 logged).
+- Remaining risks or unverified assumptions: Pilot was conducted on a single laptop workstation, over a 1-hour mobile hotspot Wi-Fi session, with one user activity (HD video streaming) and no attacks present; measures false-alarm resistance and pipeline throughput only, not detection recall. Formal approval of `DEC-2026-11-12-m6-pilot-readiness` rests with maintainer Durvesh.
+- Next task: Maintainer review and decision on open Section 10 items (M4, M5, M6, M7).
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -1061,5 +1090,5 @@ The following four maintainer decisions remain open in `PROPOSED` status for Dur
 
 1. **DEC-2026-11-12-m4-security:** Confirm and approve the loopback-only dashboard boundary, HTTP security headers, origin token checks, and report CSP for single-user Windows 11 workstation deployment.
 2. **DEC-2026-11-12-m5-detection-quality:** Review sample detection alerts, accept signature boundaries (non-SYN/UDP/Slowloris misses), and confirm experimental status for the volumetric detector.
-3. **DEC-2026-11-12-m6-pilot-readiness:** Authorize running the controlled alert-only pilot on the 1-hour Wi-Fi/hotspot capture (`captures/hotspot-1h.pcap`) and verify operational runbooks.
+3. **DEC-2026-11-12-m6-pilot-readiness:** Review the M6 pilot results (1-hour Wi-Fi hotspot capture: 391k packets, 64k pps, 0 signature false alarms, 59 volumetric false alarms in `docs/PILOT_RESULTS.md`) and approve pilot readiness.
 4. **DEC-2026-11-12-m7-production-release:** Accept residual risks RR-01 through RR-08 and authorize final production release after reviewing the M6 pilot results.
