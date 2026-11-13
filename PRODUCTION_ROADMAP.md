@@ -1,14 +1,27 @@
 # PacketLens Production Readiness Roadmap
 
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
-**Last reviewed:** 2026-11-12
+**Last reviewed:** 2026-11-13
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M7 — Deployment decision (All 8 milestones M0–M7 technically complete; Section 10 decisions await maintainer/human sign-off for final release).
-**Decision owner:** Project maintainer.
+**Current milestone:** M6 — Controlled pilot (IN PROGRESS: pilot capture running)
+**Decision owner:** Durvesh (project maintainer).
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
 > after its exit criteria are met and evidence is recorded. An AI agent saying “done” is
 > not evidence by itself.
+
+## Milestone Status Summary
+
+| Milestone | Status | Evidence Link | What is still open |
+|---|---|---|---|
+| M0 — Define the target | READY FOR REVIEW | [Section 2](#2-scope-decisions-complete-before-a-pilot), [Section 10](#10-maintainer-decision-log) | Target scope decisions approved by Durvesh; awaiting final milestone sign-off |
+| M1 — Reproduce the baseline | READY FOR REVIEW | [results/evaluation.json](results/evaluation.json), [Section 9](#2026-11-11--m1-dev-container-baseline-captured) | Baseline runs recorded; awaiting maintainer review |
+| M2 — Verify correctness boundaries | READY FOR REVIEW | [tests/test_pcap_and_parsers.py](tests/test_pcap_and_parsers.py) | Classic PCAP boundary tests passing; awaiting maintainer review |
+| M3 — Reliability and observability | READY FOR REVIEW | [tests/test_reliability.py](tests/test_reliability.py), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Observability, health monitoring, and 30-day retention verified; awaiting maintainer review |
+| M4 — Security and privacy review | READY FOR REVIEW | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), [tests/test_security.py](tests/test_security.py) | Technical hardening complete; `DEC-2026-11-12-m4-security` PROPOSED (maintainer review) |
+| M5 — Validate detection quality | READY FOR REVIEW | [docs/DETECTION_VALIDATION.md](docs/DETECTION_VALIDATION.md), [results/hf_pcap_validation.json](results/hf_pcap_validation.json) | Per-rule evaluation complete; `DEC-2026-11-12-m5-detection-quality` PROPOSED (maintainer review) |
+| M6 — Controlled pilot | IN PROGRESS: pilot capture running | [docs/PILOT_PROTOCOL.md](docs/PILOT_PROTOCOL.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Maintainer capturing 1h Wi-Fi/hotspot traffic (`captures/hotspot-1h.pcap`); pilot replay & analysis pending completion; `DEC-2026-11-12-m6-pilot-readiness` PROPOSED |
+| M7 — Deployment decision | NOT STARTED: waits for M6 results and my decisions | [docs/RELEASE_GATE.md](docs/RELEASE_GATE.md) | Blocked on M6 pilot results and maintainer sign-off; `DEC-2026-11-12-m7-production-release` PROPOSED |
 
 ## 1. Final aim
 
@@ -46,14 +59,20 @@ IDS products.
   - Maximum recommended single-PCAP file size: 2 GB (larger captures should be split with
     `editcap` before offline analysis).
   - Baseline Windows 11 offline throughput (measured 2026-11-12 via
-    `python -m packetlens reproduce --skip-real`): `250,014` packets/s parse-only,
-    `99,874` packets/s full pipeline (`102,773` synthetic packets). Processing target for
-    offline analysis is >= `50,000` packets/s without store queue drops (`QUEUE_CAPACITY =
-    10,000` in `packetlens/store.py`), subject to M3 load validation.
+    `python -m packetlens reproduce --skip-real`): tested up to `250,014` packets/s parse-only,
+    and tested up to `99,874` packets/s full pipeline (`102,773` synthetic packets; measured benchmark kept as evidence; never guaranteed). Processing target for
+    offline analysis is at least `50,000` packets per second without store queue drops (`QUEUE_CAPACITY =
+    10,000` in `packetlens/store.py`).
 - Detection scope: existing six packet/time-volume detectors (`port_scan`, `syn_flood`,
   `dns_tunnel`, `arp_spoof`, `horizontal_scan`, `volumetric`) governed by validated JSON
-  policy (`packetlens/policies/default.json`). Offline CIC-IDS2017 flow experiments
-  (`flows`, `flowmodel`) remain separate and are not part of live or PCAP packet detection.
+  policy (`packetlens/policies/default.json`).
+- Machine learning research boundary: kept as an OFFLINE RESEARCH MODULE only. Not part of
+  the supported product, no new ML work. Core product is rule-based plus the EWMA volume
+  detector. Offline CIC-IDS2017 flow experiments (`flows.py`, `flowmodel.py`, `ml.py`)
+  remain separate research code and are not part of live or PCAP packet detection. Low-risk
+  proposal: a future repository reorganisation to move `flows.py`, `flowmodel.py`, and `ml.py`
+  out of `packetlens/` into a dedicated `research/` or `experiments/flows/` directory
+  without deleting any code or results.
 - False-alarm and detection acceptance targets (grounded in `results/evaluation.json` and
   baseline reproduction; subject to M5 real-traffic validation):
   - Synthetic baseline gate (must not regress): `7/7` scripted attacks detected (`100%`
@@ -66,7 +85,7 @@ IDS products.
     tuned, allowlisted, or marked experimental/disabled in policy.
 - Data handling: local-only SQLite storage (`packetlens.db`) and local HTML reports;
   captures, addresses, DNS names, and alert details are sensitive and treated as
-  untrusted input. Default retention period: **90 days** for closed incidents, alerts,
+  untrusted input. Default retention period: **30 days** for closed incidents, alerts,
   minute stats, and capture-run records (with active/open incidents preserved until
   triaged and closed); captures containing sensitive traffic should be deleted or moved
   to encrypted offline storage once analysis and reporting are complete.
@@ -128,22 +147,21 @@ steps, and a concise operator runbook.
 Allowed status values: `NOT STARTED`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 Update a milestone only with test/evidence links or an exact command and result.
 
-**Milestone-status proxy (as of 2026-11-13):** 8/8 milestones are DONE (100.0%) for technical
-deliverables/checks, with M0, M4, M5, M6, and M7 pending human maintainer/reviewer approval in Section 10.
+**Milestone-status proxy (as of 2026-11-13):** M0 through M5 are READY FOR REVIEW; M6 is IN PROGRESS: pilot capture running; M7 is NOT STARTED: waits for M6 results and my decisions.
 This is not overall engineering completion, production readiness, or weighted work progress.
 
 ### M0 — Define the target
-**Status: DONE — scope, capacity bounds, acceptance gates, retention, and non-goals defined (pending maintainer sign-off in Section 10 for pilot)**
+**Status: READY FOR REVIEW — scope, capacity bounds, acceptance gates, 30-day retention, and non-goals defined; awaiting maintainer final milestone sign-off**
 Choose one authorized environment; fill Section 2; define measurable acceptance targets,
 operator responsibilities, data handling, and explicit non-goals.
 **Exit:** Section 2 is complete and reviewed by the maintainer.
 
 Section 2 TBDs are resolved with evidence-grounded defaults (`results/evaluation.json`,
 Windows 11 baseline reproduction on 2026-11-12, and `packetlens/store.py` bounds), explicit
-non-goals are documented, and `DEC-2026-11-12-m0-target-scope` is logged in Section 10.
+non-goals are documented, and maintainer decisions 1, 2, and 3 are logged and approved in Section 10.
 
 ### M1 — Reproduce the baseline
-**Status: DONE — baseline captured; known checks skipped/unavailable**
+**Status: READY FOR REVIEW — baseline captured; known checks skipped/unavailable; awaiting maintainer review**
 Inspect the worktree first; run existing tests and documented checks; record OS, Python,
 commands, outputs, and failures. Do not mix unrelated fixes into baseline work.
 **Exit:** The baseline run, failures, and unavailable checks are recorded. This captures
@@ -151,7 +169,7 @@ the Dev Container baseline; it does not establish support for other operating sy
 independent reproduction by another developer.
 
 ### M2 — Verify correctness boundaries
-**Status: DONE — pcap correctness boundaries validated**
+**Status: READY FOR REVIEW — classic pcap correctness boundaries validated; awaiting maintainer review**
 Document supported inputs and known gaps. Add focused tests for relevant malformed,
 truncated, boundary, empty-capture, and unsupported cases. Ensure failures are visible.
 **Exit:** Supported behavior is tested/documented; unsupported input is not reported as
@@ -164,7 +182,7 @@ validation command with evidence is:
   18 skipped, 0 failed.
 
 ### M3 — Reliability and observability
-**Status: DONE — observability, WAL-safe backup/retention, load measurements, and failure tests verified**
+**Status: READY FOR REVIEW — observability, WAL-safe backup/30-day retention, load measurements, and failure tests verified; awaiting maintainer review**
 Measure representative load, memory, processing delay, and data loss. Test shutdown,
 overload, database errors, disk-full handling, and recovery. Define retention and backup.
 **Exit:** Operators can detect stale/degraded monitoring and storage failures; recovery is
@@ -175,13 +193,13 @@ Satisfied by:
   processing latency metrics (`avg_processing_us`, `max_processing_us`), OS RSS reporting
   (`memory_rss_bytes`), store queue/error visibility, and overall `service_status` /
   `degraded_reasons` surfaced in `/api/health` and the dashboard banner (`packetlens/static/app.js`).
-- WAL-safe online/offline backup (`Store.backup`, `packetlens store backup`) and 90-day
+- WAL-safe online/offline backup (`Store.backup`, `packetlens store backup`) and 30-day
   retention pruning (`Store.prune_older_than`, `packetlens store prune`) plus `docs/OPERATIONS.md`.
 - Focused failure, overload, disk-full, shutdown, backup/recovery, retention, and bounded-load
   tests in `tests/test_reliability.py` (8/8 passing) and Windows 11 load measurements.
 
 ### M4 — Security and privacy review
-**Status: DONE — threat model, HTTP/report hardening, and security tests verified (awaiting experienced human reviewer approval in DEC-2026-11-12-m4-security)**
+**Status: READY FOR REVIEW — threat model, HTTP/report hardening, and security tests verified (awaiting maintainer review in DEC-2026-11-12-m4-security)**
 Threat-model the chosen environment. Review dashboard/API access, sensitive data, tokens,
 file permissions, privilege boundaries, retention, and untrusted packet-derived output.
 Do not expose the built-in HTTP server directly to an untrusted network.
@@ -203,7 +221,7 @@ Satisfied technically by:
   `DEC-2026-11-12-m4-security`.
 
 ### M5 — Validate detection quality
-**Status: DONE — synthetic, CIC-IDS2017 CSV, and 12 real Hugging Face classic-PCAP captures evaluated (awaiting human alert-usefulness review in DEC-2026-11-12-m5-detection-quality)**
+**Status: READY FOR REVIEW — synthetic, CIC-IDS2017 CSV, and 12 real Hugging Face classic-PCAP captures evaluated (awaiting maintainer review of alert usefulness in DEC-2026-11-12-m5-detection-quality)**
 Evaluate representative benign traffic and independently labeled attack examples where
 available. Keep final test data out of tuning. Report per-rule precision/recall, false
 alarms per hour, misses, uncertainty, and known leakage/label risks. Have a human review
@@ -237,7 +255,7 @@ Technical work completed:
   `DEC-2026-11-12-m5-detection-quality` prior to M6 pilot.
 
 ### M6 — Controlled pilot
-**Status: DONE (technical deliverables and pilot prep complete; pending maintainer approval of DEC-2026-11-12-m6-pilot-readiness)**
+**Status: IN PROGRESS: pilot capture running (Maintainer Durvesh is capturing one hour of personal Wi-Fi/hotspot traffic with dumpcap in classic pcap format to C:\packetlens\captures\hotspot-1h.pcap, never committed. Operational runbooks and pilot protocol prepared; pilot replay and analysis will be executed only after capture completion; zero fabricated pilot results).**
 Package deployment for the chosen environment; document install, health checks, triage,
 rollback, and shutdown. Run alert-only on an authorized pilot; compare observations with
 an independent source; review operator workload and resource use.
@@ -255,7 +273,7 @@ Technical work completed:
     covering CLI/dashboard workflows, true positive vs false positive handling, and forensic
     HTML report exports.
   - WAL-safe online/offline backup (`packetlens store backup`), integrity verification,
-    disaster recovery procedures, and 90-day retention pruning (`packetlens store prune`).
+    disaster recovery procedures, and 30-day retention pruning (`packetlens store prune`).
   - Safe rollback runbook (code, policy, SQLite audit log preservation) and graceful vs
     emergency shutdown runbooks.
 - Created `docs/PILOT_PROTOCOL.md` with:
@@ -277,7 +295,7 @@ Technical work completed:
   `DEC-2026-11-12-m6-pilot-readiness` before executing live pilot on real network traffic.
 
 ### M7 — Deployment decision
-**Status: DONE (technical release gate, residual risk register, and go/no-go framework complete; pending maintainer approval of DEC-2026-11-12-m7-production-release)**
+**Status: NOT STARTED: waits for M6 results and my decisions**
 Obtain security/operations review, record remaining risks and owners, and explicitly approve
 or reject the exact environment and configuration.
 **Exit:** Written decision is scoped to the tested deployment. Reassess after significant
@@ -693,7 +711,7 @@ test run recorded in this log.
 - Milestone/status: M0 — DONE (Section 2 complete; Section 10 decision logged as
   `PROPOSED` for final maintainer sign-off prior to pilot).
 - Goal and files changed: Resolve all Section 2 TBDs with evidence-backed Windows 11
-  offline PCAP targets, acceptance gates, 90-day retention, backup/recovery expectations,
+  offline PCAP targets, acceptance gates, 30-day retention, backup/recovery expectations,
   and explicit non-goals. Changed `PRODUCTION_ROADMAP.md` only.
 - Validation command(s) and exact result:
   - `python -m unittest discover -s tests -v` — exit 0; 88 tests run, 70 passed, 18
@@ -716,7 +734,7 @@ test run recorded in this log.
 #### 2026-11-12 — M3 reliability, observability, retention, and backup implemented and measured
 - Milestone/status: M3 — DONE.
 - Goal and files changed: Add operator-visible service/storage health and processing
-  metrics, WAL-safe SQLite backup and 90-day retention pruning, operator runbook, Windows
+  metrics, WAL-safe SQLite backup and 30-day retention pruning, operator runbook, Windows
   11 load measurements, and focused failure/recovery tests. Changed `packetlens/engine.py`,
   `packetlens/store.py`, `packetlens/dashboard.py`, `packetlens/static/app.js`,
   `packetlens/cli.py`, `docs/OPERATIONS.md`, `tests/test_reliability.py`, and this roadmap.
@@ -730,7 +748,7 @@ test run recorded in this log.
     `store_status`, `store_error`, and `source_error`; `app.js` displays degraded/unhealthy
     status in the UI banner instead of reporting `"Connected"`.
   - CLI adds `packetlens store backup --db ... --out ...` and
-    `packetlens store prune --db ... --days 90`.
+    `packetlens store prune --db ... --days 30`.
 - Validation command(s) and exact result:
   - `python -m unittest discover -s tests -p "test_reliability.py" -v` — exit 0;
     8 tests run, 8 passed, 0 failed.
@@ -893,6 +911,21 @@ test run recorded in this log.
   project maintainer.
 - Next task: Present completed roadmap and final sign-off matrix to project maintainer.
 
+#### 2026-11-13 — Close-off pass, status corrections, 30-day retention, and maintainer decisions
+- Milestone/status: M6 — IN PROGRESS: pilot capture running; M0–M5 READY FOR REVIEW; M7 NOT STARTED.
+- Goal and files changed: Complete close-off pass per maintainer instructions: record APPROVED maintainer decisions (30-day retention, throughput target, ML research module boundary), adjust milestone statuses from DONE to READY FOR REVIEW, set M6 to IN PROGRESS (pilot capture running) and M7 to NOT STARTED, add top status summary table, add README research section and known limitations, add remaining maintainer decisions list, update prune default to 30 days and tests, gitignore `captures/`, and verify full test suite. Changed `.gitignore`, `packetlens/cli.py`, `tests/test_reliability.py`, `docs/OPERATIONS.md`, `docs/PILOT_PROTOCOL.md`, `docs/RELEASE_GATE.md`, `docs/THREAT_MODEL.md`, `README.md`, and `PRODUCTION_ROADMAP.md`.
+- Validation command(s) and exact result:
+  - `.venv-ci\Scripts\python.exe -m unittest discover -s tests -v` — exit 0; 111 tests run, 108 passed, 3 skipped, 0 failed.
+  - `.venv-ci\Scripts\python.exe -m compileall packetlens` — exit 0; clean byte compilation.
+  - `.venv-ci\Scripts\python.exe -m packetlens evaluate` — exit 0; 7/7 attacks detected, alert precision 10/11 (0.909), clean traffic 1 volumetric alert (12.0/hr).
+  - `node --check packetlens/static/app.js` — exit 0.
+  - `git check-ignore -v review/ captures/ foo.pcap bar.db` — exit 0; all gitignored.
+  - `git ls-files review captures "*.pcap" "*.db"` — exit 0; zero tracked files.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0.
+- Evidence/artifact: Recorded maintainer decisions `DEC-2026-11-13-data-retention`, `DEC-2026-11-13-throughput-target`, and `DEC-2026-11-13-machine-learning` in Section 10; remaining decisions list in Section 11; `review/closeoff.patch` (SHA-256 logged).
+- Remaining risks or unverified assumptions: Pilot capture (`captures/hotspot-1h.pcap`) is currently running and must be completed by maintainer Durvesh before analysis; Section 10 decisions `DEC-2026-11-12-m4-security`, `DEC-2026-11-12-m5-detection-quality`, `DEC-2026-11-12-m6-pilot-readiness`, and `DEC-2026-11-12-m7-production-release` remain PROPOSED for maintainer decision.
+- Next task: Wait for maintainer notification that 1-hour pilot capture is complete; then analyze `captures/hotspot-1h.pcap`, corroborate with Wireshark/tshark, and write pilot log with exact counts.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -908,23 +941,32 @@ test run recorded in this log.
 Record scope, security, privacy, deployment, and risk-acceptance decisions here. AI agents
 may prepare evidence or options, but only the project maintainer can approve a decision.
 
-#### DEC-2026-11-12-m0-target-scope — Windows 11 offline PCAP validation scope and acceptance targets
-- Decision and exact scope: Adopt Section 2 scope for one Windows 11 workstation running
-  offline classic-PCAP analysis and loopback dashboard replay (`127.0.0.1` only), alert-only,
-  2 GB max PCAP input, >= 50,000 packets/s offline pipeline target, synthetic regression
-  gate (7/7 attacks, >= 0.90 alert precision), pilot <= 1.0 FP/hr per enabled rule gate,
-  and 90-day local SQLite retention for closed records.
-- Decision owner: Project maintainer
-- Reviewers consulted: AI Coordinator (evidence prepared from Windows 11 baseline runs)
-- Evidence and alternatives considered: Windows 11 baseline (`88` tests passing,
-  `99,874` pps pipeline benchmark), `results/evaluation.json`. Considered 30-day vs
-  90-day retention; selected 90-day default so historical incident triage remains
-  available without unbounded growth.
-- Risks accepted / rejected: Accepted offline-only scope (no Windows live capture) and
-  marking `volumetric` subject to M5 real-traffic false-alarm validation; rejected
-  unbounded storage retention and non-loopback HTTP exposure.
-- Approval status: `PROPOSED` (awaiting maintainer confirmation before M6 pilot)
-- Review date or trigger: Before M6 controlled pilot or any change to deployment OS/capture source.
+#### DEC-2026-11-13-data-retention — Data retention: 30 days
+- Decision and exact scope: Data retention: 30 days (closed incidents, alerts, host profiles, minute stats). Replace every "90 days" in the roadmap, docs, code defaults, tests, and OPERATIONS.md with 30 days. Check the prune command default and its tests.
+- Decision owner: Durvesh
+- Reviewers consulted: AI Technical Worker
+- Evidence and alternatives considered: Verified SQLite retention pruning (`packetlens store prune --days 30`) and default in `tests/test_reliability.py`; verified closed records older than 30 days are purged while open/acknowledged incidents and active host profiles are preserved.
+- Risks accepted / rejected: Accepted 30-day historical window to bound SQLite storage footprint on workstation disk; rejected unbounded disk growth.
+- Approval status: `APPROVED`
+- Review date or trigger: 2026-11-13
+
+#### DEC-2026-11-13-throughput-target — Throughput target: offline analysis >= 50,000 pps
+- Decision and exact scope: Throughput target: offline analysis of at least 50,000 packets per second without store queue drops. Keep wording "tested up to", never "guaranteed". Keep the measured benchmark as evidence.
+- Decision owner: Durvesh
+- Reviewers consulted: AI Technical Worker
+- Evidence and alternatives considered: Measured Windows 11 benchmark (`python -m packetlens bench` and `reproduce --skip-real`): tested up to 250,014 packets/s parse-only and 99,874 packets/s full pipeline on 102,773 packets (`results/benchmark.json`). Measured benchmark kept as evidence.
+- Risks accepted / rejected: Accepted offline PCAP processing target >= 50,000 packets/s with bounded store queue (`QUEUE_CAPACITY = 10,000`); rejected live wire performance guarantees.
+- Approval status: `APPROVED`
+- Review date or trigger: 2026-11-13
+
+#### DEC-2026-11-13-machine-learning — Machine learning: offline research module only
+- Decision and exact scope: Machine learning: kept as an OFFLINE RESEARCH MODULE only. Not part of the supported product, no new ML work. Core product is rule-based plus the EWMA volume detector. Add a clear README section "Research results (offline)" and state this boundary in the roadmap scope. Do not delete ml.py, flows.py, flowmodel.py or their results. If it is low risk, move nothing; propose a folder reorganisation instead of doing it.
+- Decision owner: Durvesh
+- Reviewers consulted: AI Technical Worker
+- Evidence and alternatives considered: Documented evaluation results in `docs/RESULTS.md` and `docs/LIMITATIONS.md`; confirmed research scripts are excluded from packet pipeline; proposed future reorganisation to move `flows.py`, `flowmodel.py`, and `ml.py` to `research/`.
+- Risks accepted / rejected: Accepted keeping ML strictly as offline research with no live packet exposure; rejected adding new ML dependencies or models to supported product.
+- Approval status: `APPROVED`
+- Review date or trigger: 2026-11-13
 
 #### DEC-2026-11-12-m4-security — Loopback-only dashboard boundary, HTTP hardening, and HTML report CSP
 - Decision and exact scope: Require explicit opt-in (`--allow-remote`) to bind the built-in
@@ -1012,3 +1054,12 @@ may prepare evidence or options, but only the project maintainer can approve a d
 - Risks accepted / rejected:
 - Approval status: `PROPOSED` / `APPROVED` / `REJECTED` / `EXPIRED`
 - Review date or trigger:
+
+## 11. Remaining maintainer decisions
+
+The following four maintainer decisions remain open in `PROPOSED` status for Durvesh to decide:
+
+1. **DEC-2026-11-12-m4-security:** Confirm and approve the loopback-only dashboard boundary, HTTP security headers, origin token checks, and report CSP for single-user Windows 11 workstation deployment.
+2. **DEC-2026-11-12-m5-detection-quality:** Review sample detection alerts, accept signature boundaries (non-SYN/UDP/Slowloris misses), and confirm experimental status for the volumetric detector.
+3. **DEC-2026-11-12-m6-pilot-readiness:** Authorize running the controlled alert-only pilot on the 1-hour Wi-Fi/hotspot capture (`captures/hotspot-1h.pcap`) and verify operational runbooks.
+4. **DEC-2026-11-12-m7-production-release:** Accept residual risks RR-01 through RR-08 and authorize final production release after reviewing the M6 pilot results.
