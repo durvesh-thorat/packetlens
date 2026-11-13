@@ -35,6 +35,24 @@ class GeneratedDocumentationTests(unittest.TestCase):
             readme,
         )
 
+    def test_operations_runbook_exists_and_contains_core_sections(self):
+        ops = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+        self.assertIn("## 1. Prerequisites and Installation", ops)
+        self.assertIn("## 2. Standard Offline and Pilot Workflows", ops)
+        self.assertIn("## 3. Observability and Health Monitoring", ops)
+        self.assertIn("## 4. Incident Triage Standard Operating Procedure (SOP)", ops)
+        self.assertIn("## 5. Backup, Retention, and Recovery", ops)
+        self.assertIn("## 6. Safe Rollback Runbook", ops)
+        self.assertIn("## 7. Graceful and Emergency Shutdown Runbook", ops)
+
+    def test_pilot_protocol_exists_and_contains_safety_boundary(self):
+        protocol = (ROOT / "docs" / "PILOT_PROTOCOL.md").read_text(encoding="utf-8")
+        self.assertIn("## 1. Alert-Only Observation Protocol", protocol)
+        self.assertIn("## 2. Section 6 Safety & Non-Fabrication Boundary", protocol)
+        self.assertIn("## 3. Independent Source Comparison Methodology", protocol)
+        self.assertIn("## 4. Operator Workload and Resource Usage Review", protocol)
+        self.assertIn("## 5. Operational Checklists", protocol)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@
 **Purpose:** Keep the long-term goal, current progress, evidence, and AI-agent rules in one durable place.
 **Last reviewed:** 2026-11-12
 **Overall status:** Prototype / research project; production readiness not established.
-**Current milestone:** M6 — Controlled pilot prep (M0–M5 technical work complete; M0/M4/M5 await maintainer/human sign-off in Section 10 before pilot execution).
+**Current milestone:** M7 — Deployment decision (M0–M6 technical work complete; M0/M4/M5/M6 await maintainer/human sign-off in Section 10 before live pilot/deployment).
 **Decision owner:** Project maintainer.
 
 > This is a living engineering record, not a promise or certification. Mark work DONE only
@@ -237,12 +237,44 @@ Technical work completed:
   `DEC-2026-11-12-m5-detection-quality` prior to M6 pilot.
 
 ### M6 — Controlled pilot
-**Status: NOT STARTED**
+**Status: DONE (technical deliverables and pilot prep complete; pending maintainer approval of DEC-2026-11-12-m6-pilot-readiness)**
 Package deployment for the chosen environment; document install, health checks, triage,
 rollback, and shutdown. Run alert-only on an authorized pilot; compare observations with
 an independent source; review operator workload and resource use.
 **Exit:** The agreed observation period meets M0 criteria with no unresolved critical
 security, correctness, or data-loss issue. A pilot does not prove generalization.
+
+Technical work completed:
+- Expanded `docs/OPERATIONS.md` with:
+  - Windows 11 workstation installation, isolated virtual environment, standard library
+    dependency-free profile, and CLI verification runbook.
+  - Standard offline batch analysis and loopback replay workflows (`127.0.0.1` boundary).
+  - Diagnostic runbook for degraded conditions: `source_stale`, `source_error`,
+    `store_drops`, `store_writer_error`, and Win32 RSS memory monitoring (< 150 MB).
+  - Incident triage standard operating procedure (SOP) targeting < 3 minutes per incident,
+    covering CLI/dashboard workflows, true positive vs false positive handling, and forensic
+    HTML report exports.
+  - WAL-safe online/offline backup (`packetlens store backup`), integrity verification,
+    disaster recovery procedures, and 90-day retention pruning (`packetlens store prune`).
+  - Safe rollback runbook (code, policy, SQLite audit log preservation) and graceful vs
+    emergency shutdown runbooks.
+- Created `docs/PILOT_PROTOCOL.md` with:
+  - Alert-only observation protocol: passive monitoring, loopback console, single Windows 11
+    workstation, zero packet blocking or network disruption.
+  - Section 6 non-fabrication boundary: explicit restriction that live pilot runs are never
+    fabricated by AI agents and that human maintainers execute actual pilots.
+  - Independent source comparison methodology: detailed procedure comparing PacketLens
+    offline replay alerts against `Wireshark` and `tshark` ground truth (timestamps, 5-tuples,
+    protocol decodes, and discrepancy reconciliation).
+  - Operator workload and resource usage review: quantified operator workload bounds
+    (< 3 min/incident triage, <= 1.0 FP/hr per enabled rule) and system resource thresholds
+    (RSS memory < 150 MB, CPU utilization, store queue depth).
+  - Operational checklists: pre-pilot readiness checklist, daily observation checklist, and
+    pilot exit criteria checklist.
+- Added documentation regression tests in `tests/test_generated_docs.py` (5/5 passing).
+- Staged maintainer decision `DEC-2026-11-12-m6-pilot-readiness` as `PROPOSED` in Section 10.
+- **Remaining human gate:** Human maintainer review and sign-off on
+  `DEC-2026-11-12-m6-pilot-readiness` before executing live pilot on real network traffic.
 
 ### M7 — Deployment decision
 **Status: NOT STARTED**
@@ -800,6 +832,27 @@ test run recorded in this log.
 - Next task: Review `DEC-2026-11-12-m0-target-scope`, `DEC-2026-11-12-m4-security`, and
   `DEC-2026-11-12-m5-detection-quality`, then begin M6 controlled-pilot packaging/runbook prep.
 
+#### 2026-11-13 — M6 controlled pilot packaging, operational runbooks, and verification protocol
+- Milestone/status: M6 — DONE technically (pilot packaging, operational runbooks, comparative
+  methodology, and checklists complete; awaiting maintainer approval in Section 10).
+- Goal and files changed: Package deployment for Windows 11 target workstation; expand
+  operational runbook for installation, diagnostics, incident triage SOP, rollback, and
+  shutdown; establish alert-only observation protocol and independent source comparison plan
+  against Wireshark/tshark; stage M6 maintainer decision. Updated `docs/OPERATIONS.md`, created
+  `docs/PILOT_PROTOCOL.md`, updated `tests/test_generated_docs.py`, `.gitignore`, and this roadmap.
+- Validation command(s) and exact result:
+  - `python -m unittest tests/test_generated_docs.py -v` — exit 0; 5/5 tests passing.
+  - `python -m unittest discover -s tests -v` — exit 0; 108 tests passing, 0 failures, 0 errors
+    (18 skipped in system Python for optional ML dependencies).
+  - `node --check packetlens/static/app.js` — exit 0; JavaScript syntax clean.
+  - `git -c core.whitespace=cr-at-eol diff --check` — exit 0; zero whitespace errors.
+- Evidence/artifact: `docs/OPERATIONS.md`, `docs/PILOT_PROTOCOL.md`, `tests/test_generated_docs.py`,
+  and `DEC-2026-11-12-m6-pilot-readiness` staged in Section 10.
+- Remaining risks or unverified assumptions: Section 6 prohibits agents from fabricating live
+  pilot runs; actual pilot observation and sign-off on `DEC-2026-11-12-m6-pilot-readiness`
+  must be conducted by human maintainers.
+- Next task: Review M6 pilot readiness decision and complete M7 production release gate.
+
 ### Progress-entry template
 
 #### YYYY-MM-DD — Short task name
@@ -870,6 +923,25 @@ may prepare evidence or options, but only the project maintainer can approve a d
   classifiers into pilot alerting rules without recalibration.
 - Approval status: `PROPOSED` (awaiting human alert-usefulness sign-off)
 - Review date or trigger: Before M6 controlled pilot or whenever adding new signature rules.
+
+#### DEC-2026-11-12-m6-pilot-readiness — Controlled pilot packaging, operational runbooks, and verification protocol
+- Decision and exact scope: Adopt operational runbooks in `docs/OPERATIONS.md` and observation
+  protocol in `docs/PILOT_PROTOCOL.md` for controlled pilot evaluation on one Windows 11
+  workstation; enforce strictly alert-only observation with loopback dashboard binding
+  (`127.0.0.1`), zero active packet injection or firewall manipulation, cross-tool validation
+  against `Wireshark`/`tshark` ground truth, operator triage bound of < 3 minutes per incident,
+  and system resource bounds (RSS < 150 MB).
+- Decision owner: Project maintainer
+- Reviewers consulted: AI Coordinator (operational runbooks, comparison plan, and checklists prepared)
+- Evidence and alternatives considered: `docs/OPERATIONS.md`, `docs/PILOT_PROTOCOL.md`,
+  `tests/test_generated_docs.py` (5/5 passing), `tests/test_security.py` (8/8 passing),
+  `tests/test_reliability.py` (6/6 passing). Considered enabling active firewall rules; rejected
+  to prevent network disruption. Considered remote dashboard binding; rejected to prevent
+  unauthenticated network exposure.
+- Risks accepted / rejected: Accepted alert-only passive observation and reliance on offline
+  PCAP capture files; rejected active packet blocking, live capture drivers, and remote HTTP exposure.
+- Approval status: `PROPOSED` (awaiting maintainer review and sign-off before pilot execution)
+- Review date or trigger: Before starting live pilot observation or executing on real network traffic.
 
 ### Decision entry template
 
