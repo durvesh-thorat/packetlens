@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import queue
+import random
 import sqlite3
 import threading
 import time
@@ -22,10 +23,28 @@ logger = logging.getLogger(__name__)
 QUEUE_CAPACITY = 10000
 MAX_PAGE_SIZE = 500
 MAX_INCIDENT_ALERTS = 1000
+MAX_INCIDENT_AUDIT = 200
 MAX_MINUTE_STATS = 10000
 MAX_HOST_PEERS = 2000
 MAX_ACTIVE_GROUPS = 50000
 SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+INCIDENT_SORT_COLUMNS = {
+    "last_ts": "last_ts",
+    "first_ts": "first_ts",
+    "count": "count",
+    "severity": ("CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 "
+                 "WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"),
+    "status": "status",
+    "kind": "kind",
+    "src": "src",
+}
+
+
+def _is_transient_sqlite_error(exc):
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
 
 
 def migrate(connection):
@@ -132,6 +151,7 @@ class Store:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
+        max_attempts = 4
         while True:
             job = self._queue.get()
             if job is None:
@@ -139,20 +159,30 @@ class Store:
                 break
             function, future = job
             try:
-                result = function(connection)
-                connection.commit()
-                with self._counter_lock:
-                    self._written += 1
-                if future is not None:
-                    future["result"] = result
-            except Exception as exc:
-                connection.rollback()
-                logger.exception("SQLite writer failed")
-                if future is not None:
-                    future["error"] = exc
-                else:
-                    with self._counter_lock:
-                        self._writer_error = exc
+                for attempt in range(max_attempts):
+                    try:
+                        result = function(connection)
+                        connection.commit()
+                        with self._counter_lock:
+                            self._written += 1
+                        if future is not None:
+                            future["result"] = result
+                        break
+                    except Exception as exc:
+                        connection.rollback()
+                        if _is_transient_sqlite_error(exc) and attempt + 1 < max_attempts:
+                            delay = 0.02 * (2 ** attempt) + random.uniform(0.0, 0.01)
+                            logger.warning("Transient SQLite busy/locked (%s); retrying in %.3fs", exc, delay)
+                            time.sleep(delay)
+                            continue
+                        if not isinstance(exc, ValueError):
+                            logger.exception("SQLite writer failed")
+                        if future is not None:
+                            future["error"] = exc
+                        else:
+                            with self._counter_lock:
+                                self._writer_error = exc
+                        break
             finally:
                 if future is not None:
                     future["event"].set()
@@ -184,6 +214,8 @@ class Store:
         if future is not None:
             future["event"].wait()
             if future["error"] is not None:
+                if isinstance(future["error"], ValueError):
+                    raise future["error"]
                 raise RuntimeError(f"SQLite writer failed: {future['error']}") from future["error"]
             return future["result"]
         return True
@@ -292,15 +324,29 @@ class Store:
             })
 
         def write(connection):
+            existing = {}
+            ips = [row["ip"] for row in rows]
+            for start in range(0, len(ips), 500):
+                chunk = ips[start:start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                for old_row in connection.execute(
+                    f"SELECT ip,peers_json,top_ports_json,protocols_json FROM hosts WHERE ip IN ({placeholders})",
+                    chunk,
+                ):
+                    existing[old_row[0]] = (
+                        json.loads(old_row[1]),
+                        json.loads(old_row[2]),
+                        json.loads(old_row[3]),
+                    )
+            params = []
             for row in rows:
-                old = connection.execute("SELECT peers_json,top_ports_json,protocols_json FROM hosts "
-                                         "WHERE ip=?", (row["ip"],)).fetchone()
                 peers = row["peers"]
                 ports = row["top_ports"]
                 protocols = row["protocols"]
-                if old:
-                    peers = list(dict.fromkeys(json.loads(old[0]) + peers))[:MAX_HOST_PEERS]
-                    old_ports, old_protocols = json.loads(old[1]), json.loads(old[2])
+                old = existing.get(row["ip"])
+                if old is not None:
+                    old_peers, old_ports, old_protocols = old
+                    peers = list(dict.fromkeys(old_peers + peers))[:MAX_HOST_PEERS]
                     port_counts = {str(port): count for port, count in old_ports}
                     for port, count in ports:
                         port_counts[str(port)] = max(int(count), int(port_counts.get(str(port), 0)))
@@ -310,28 +356,33 @@ class Store:
                     for protocol, count in protocols.items():
                         merged_protocols[protocol] = max(int(count), int(merged_protocols.get(protocol, 0)))
                     protocols = merged_protocols
-                connection.execute("""
-                    INSERT INTO hosts(ip,first_seen,last_seen,packets_in,packets_out,bytes_in,bytes_out,
-                        peers_json,peers_truncated,top_ports_json,protocols_json,alert_count)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(ip) DO UPDATE SET
-                        first_seen=min(hosts.first_seen,excluded.first_seen),
-                        last_seen=max(hosts.last_seen,excluded.last_seen),
-                        packets_in=max(hosts.packets_in,excluded.packets_in),
-                        packets_out=max(hosts.packets_out,excluded.packets_out),
-                        bytes_in=max(hosts.bytes_in,excluded.bytes_in),
-                        bytes_out=max(hosts.bytes_out,excluded.bytes_out),
-                        peers_json=excluded.peers_json,
-                        peers_truncated=max(hosts.peers_truncated,excluded.peers_truncated),
-                        top_ports_json=excluded.top_ports_json,
-                        protocols_json=excluded.protocols_json,
-                        alert_count=max(hosts.alert_count,excluded.alert_count)
-                """, (row["ip"], row["first_seen"], row["last_seen"], row["packets_in"],
-                      row["packets_out"], row["bytes_in"], row["bytes_out"], json.dumps(peers),
-                      int(row["peers_truncated"]), json.dumps(ports), json.dumps(protocols),
-                      row["alert_count"]))
+                existing[row["ip"]] = (peers, ports, protocols)
+                params.append((
+                    row["ip"], row["first_seen"], row["last_seen"], row["packets_in"],
+                    row["packets_out"], row["bytes_in"], row["bytes_out"], json.dumps(peers),
+                    int(row["peers_truncated"]), json.dumps(ports), json.dumps(protocols),
+                    row["alert_count"],
+                ))
+            connection.executemany("""
+                INSERT INTO hosts(ip,first_seen,last_seen,packets_in,packets_out,bytes_in,bytes_out,
+                    peers_json,peers_truncated,top_ports_json,protocols_json,alert_count)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(ip) DO UPDATE SET
+                    first_seen=min(hosts.first_seen,excluded.first_seen),
+                    last_seen=max(hosts.last_seen,excluded.last_seen),
+                    packets_in=max(hosts.packets_in,excluded.packets_in),
+                    packets_out=max(hosts.packets_out,excluded.packets_out),
+                    bytes_in=max(hosts.bytes_in,excluded.bytes_in),
+                    bytes_out=max(hosts.bytes_out,excluded.bytes_out),
+                    peers_json=excluded.peers_json,
+                    peers_truncated=max(hosts.peers_truncated,excluded.peers_truncated),
+                    top_ports_json=excluded.top_ports_json,
+                    protocols_json=excluded.protocols_json,
+                    alert_count=max(hosts.alert_count,excluded.alert_count)
+            """, params)
         if rows:
-            self._enqueue(write)
+            return self._enqueue(write)
+        return True
 
     def add_minute_stat(self, bin_dict):
         """Queue one bounded-size traffic bin, replacing a duplicate timestamp."""
@@ -355,9 +406,10 @@ class Store:
             "INSERT INTO capture_runs(id,source,packets,bytes,malformed,first_ts,last_ts,dropped_writes) "
             "VALUES(?,?,?,?,?,?,?,?)", (run_id,) + values), wait=True)
 
-    def capture_summary(self):
+    def capture_summary(self, flush=True):
         """Return persisted packet totals; legacy stores fall back to their traffic bins."""
-        self.flush()
+        if flush:
+            self.flush()
         connection = self._connect_read()
         try:
             summary = connection.execute(
@@ -504,8 +556,14 @@ class Store:
     def _incident_dict(row):
         return dict(row)
 
-    def list_incidents(self, status=None, severity=None, kind=None, q=None, limit=50, offset=0):
+    def list_incidents(self, status=None, severity=None, kind=None, q=None, limit=50, offset=0,
+                       sort="last_ts", order="desc"):
         """List at most 500 matching incidents; q treats LIKE wildcards literally."""
+        if sort not in INCIDENT_SORT_COLUMNS:
+            raise ValueError(f"unsupported incident sort: {sort}")
+        direction = str(order).upper()
+        if direction not in {"ASC", "DESC"}:
+            raise ValueError(f"unsupported sort order: {order}")
         self.flush()
         clauses, params = [], []
         for column, value in (("status", status), ("severity", severity), ("kind", kind)):
@@ -519,11 +577,12 @@ class Store:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         limit = min(MAX_PAGE_SIZE, max(0, int(limit)))
         offset = max(0, int(offset))
+        order_expr = INCIDENT_SORT_COLUMNS[sort]
         connection = self._connect_read()
         try:
             total = connection.execute("SELECT count(*) FROM incidents" + where, params).fetchone()[0]
             rows = connection.execute("SELECT * FROM incidents" + where +
-                                      " ORDER BY last_ts DESC,id LIMIT ? OFFSET ?",
+                                      f" ORDER BY {order_expr} {direction},id ASC LIMIT ? OFFSET ?",
                                       params + [limit, offset]).fetchall()
             return {"total": total, "items": [self._incident_dict(row) for row in rows]}
         finally:
@@ -548,6 +607,12 @@ class Store:
                 item = dict(alert)
                 item["data"] = json.loads(item.pop("data_json"))
                 result["alerts"].append(item)
+            audit = connection.execute(
+                "SELECT id,incident_id,ts,action,note FROM audit_log "
+                "WHERE incident_id=? ORDER BY ts,id LIMIT ?",
+                (str(id), MAX_INCIDENT_AUDIT + 1)).fetchall()
+            result["audit_truncated"] = len(audit) > MAX_INCIDENT_AUDIT
+            result["audit_log"] = [dict(a) for a in audit[:MAX_INCIDENT_AUDIT]]
             return result
         finally:
             connection.close()
@@ -556,21 +621,16 @@ class Store:
         """Apply only open->acknowledged, acknowledged->closed, or open->closed."""
         if status not in {"acknowledged", "closed"}:
             raise ValueError(f"invalid target status: {status!r}")
-        self.flush()
-        connection = self._connect_read()
-        try:
-            row = connection.execute("SELECT status FROM incidents WHERE id=?", (str(id),)).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            raise ValueError(f"incident not found: {id}")
-        allowed = {"open": {"acknowledged", "closed"}, "acknowledged": {"closed"}}
-        if status not in allowed.get(row["status"], set()):
-            raise ValueError(f"invalid incident status transition: {row['status']} -> {status}")
         update_time = time.time()
         note = str(note)
+        allowed = {"open": {"acknowledged", "closed"}, "acknowledged": {"closed"}}
 
         def write(writer):
+            row = writer.execute("SELECT status FROM incidents WHERE id=?", (str(id),)).fetchone()
+            if row is None:
+                raise ValueError(f"incident not found: {id}")
+            if status not in allowed.get(row["status"], set()):
+                raise ValueError(f"invalid incident status transition: {row['status']} -> {status}")
             writer.execute("UPDATE incidents SET status=? WHERE id=?", (status, str(id)))
             writer.execute("INSERT INTO audit_log(incident_id,ts,action,note) VALUES(?,?,?,?)",
                            (str(id), update_time, status, note))
@@ -597,11 +657,13 @@ class Store:
             clauses = " WHERE ip LIKE ? ESCAPE '\\'"
             params.append(f"%{self._escape_like(q)}%")
         limit, offset = min(MAX_PAGE_SIZE, max(0, int(limit))), max(0, int(offset))
+        direction = "ASC" if sort == "ip" else "DESC"
         connection = self._connect_read()
         try:
             total = connection.execute("SELECT count(*) FROM hosts" + clauses, params).fetchone()[0]
-            rows = connection.execute("SELECT * FROM hosts" + clauses + f" ORDER BY {sort_columns[sort]} DESC "
-                                      "LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+            rows = connection.execute(
+                "SELECT * FROM hosts" + clauses + f" ORDER BY {sort_columns[sort]} {direction},ip ASC "
+                "LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
             items = []
             for row in rows:
                 item = dict(row)
@@ -644,9 +706,22 @@ class Store:
         finally:
             connection.close()
 
-    def summary(self):
-        """Return totals and open-incident counts grouped by severity."""
+    def time_bounds(self):
+        """Return the earliest and latest packet-time in minute_stats, or None."""
         self.flush()
+        connection = self._connect_read()
+        try:
+            row = connection.execute("SELECT min(t), max(t), count(*) FROM minute_stats").fetchone()
+            if row and row[0] is not None:
+                return {"first_t": float(row[0]), "last_t": float(row[1]), "count": int(row[2])}
+            return {"first_t": None, "last_t": None, "count": 0}
+        finally:
+            connection.close()
+
+    def summary(self, flush=True):
+        """Return totals and open-incident counts grouped by severity."""
+        if flush:
+            self.flush()
         connection = self._connect_read()
         try:
             groups = connection.execute(

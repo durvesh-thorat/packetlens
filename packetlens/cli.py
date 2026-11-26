@@ -4,6 +4,7 @@ import shlex
 import sqlite3
 import sys
 import time
+from collections import deque
 
 from .engine import Engine
 from .parsers import SUPPORTED_LINKTYPES
@@ -21,7 +22,10 @@ def cmd_analyze(a):
     store = Store(a.db) if a.db else None
     try:
         policy = load_policy(a.policy) if a.policy else None
-        eng, alerts = Engine(policy=policy, store=store), []
+        eng = Engine(policy=policy, store=store)
+        keep_all = bool(a.json or store is None)
+        alerts = [] if keep_all else deque(maxlen=200)
+        alert_count = 0
         t0 = time.perf_counter()
         try:
             with PcapReader(a.file) as r:
@@ -30,11 +34,17 @@ def cmd_analyze(a):
                 for ts, data in r:
                     first_ts = ts if first_ts is None else first_ts
                     last_ts = ts
-                    alerts += eng.process(ts, data, r.linktype)
+                    batch = eng.process(ts, data, r.linktype)
+                    if batch:
+                        alert_count += len(batch)
+                        alerts.extend(batch)
         except PcapError as exc:
             sys.exit(str(exc))
-        alerts += eng.finish()
-        dt = time.perf_counter() - t0
+        batch = eng.finish()
+        if batch:
+            alert_count += len(batch)
+            alerts.extend(batch)
+        dt = max(1e-9, time.perf_counter() - t0)
         s = eng.snapshot()
         if store is not None:
             store.record_capture(a.file, s["total_packets"], s["total_bytes"], s["malformed"],
@@ -48,9 +58,12 @@ def cmd_analyze(a):
               f"({s['total_packets'] / dt:,.0f} packets/s)")
         print("Protocols:", ", ".join(f"{k} {v}" for k, v in sorted(s['protocols'].items(), key=lambda x: -x[1])))
         print("Top talkers:", ", ".join(f"{ip} ({b:,} B)" for ip, b in s["talkers"][:5]))
-        print(f"\n{len(alerts)} alert(s)")
-        for x in alerts:
-            print(f"  [{x.severity:6}] t={x.ts:.1f}  {x.kind:16} {x.src:20} {x.detail}")
+        print(f"\n{alert_count} alert(s)")
+        if not getattr(a, "quiet", False):
+            for x in alerts:
+                print(f"  [{x.severity:6}] t={x.ts:.1f}  {x.kind:16} {x.src:20} {x.detail}")
+            if alert_count > len(alerts):
+                print(f"  ... ({alert_count - len(alerts):,} earlier alerts persisted to {a.db})")
     finally:
         if store is not None:
             store.close()
@@ -84,15 +97,18 @@ def cmd_serve(a):
         def packets():
             with PcapReader(a.pcap) as r:
                 for ts, data in r:
-                    yield ts, data, linktype
+                    yield ts, data, r.linktype
         source = replay_packets(packets, a.speed, a.loop)
         source_name = f"pcap:{a.pcap}"
     else:
         from .capture import live_packets
 
-        def source():
-            for ts, data in live_packets(a.iface):
-                yield ts, data, 1
+        def source(stop_event=None):
+            for pkt in live_packets(a.iface, stop_event=stop_event):
+                ts, data, *rest = pkt
+                pkt_linktype = rest[0] if rest else 1
+                _check_linktype(pkt_linktype)
+                yield ts, data, pkt_linktype
         source_name = f"interface:{a.iface or 'default'}"
     serve(eng, source, a.host, a.port, store=store, source_name=source_name,
           policy=policy, results_dir=a.results_dir, allow_non_loopback=a.allow_remote)
@@ -110,9 +126,15 @@ def cmd_live(a):
     store = Store(a.db) if a.db else None
     eng = Engine(policy=policy, store=store)
     print("Capturing... Ctrl-C to stop. Only capture networks you own or are authorised to monitor.")
+    first_ts = last_ts = None
     try:
-        for ts, data in live_packets(a.iface):
-            for x in eng.process(ts, data, 1):
+        for pkt in live_packets(a.iface):
+            ts, data, *rest = pkt
+            linktype = rest[0] if rest else 1
+            _check_linktype(linktype)
+            first_ts = ts if first_ts is None else first_ts
+            last_ts = ts
+            for x in eng.process(ts, data, linktype):
                 print(f"[{x.severity}] {x.kind} {x.src} {x.detail}")
     except KeyboardInterrupt:
         s = eng.snapshot()
@@ -120,6 +142,10 @@ def cmd_live(a):
     finally:
         eng.finish()
         if store is not None:
+            s = eng.snapshot()
+            store.record_capture(f"interface:{a.iface or 'default'}", s["total_packets"],
+                                 s["total_bytes"], s["malformed"], first_ts, last_ts,
+                                 store.counters()["dropped"])
             store.close()
 
 
@@ -148,26 +174,28 @@ def cmd_evaluate(a):
 
 
 def cmd_flows(a):
-    from .flows import evaluate_flows, print_report, save_report
+    from .evaluate import import_research
     from .provenance import build_meta
+    flows = import_research("flows")
     meta = (build_meta(a.command_line, [*a.benign, *a.attack],
                        seeds={"isolation_forest": 0, "bootstrap": 42})
             if a.save else None)
-    result = evaluate_flows(a.benign, a.attack, a.freq, a.train_frac, a.min_attack_flows, a.z,
-                            granite=a.granite)
-    print_report(result)
+    result = flows.evaluate_flows(a.benign, a.attack, a.freq, a.train_frac, a.min_attack_flows, a.z,
+                                  granite=a.granite)
+    flows.print_report(result)
     if a.save:
-        save_report(result, a.save, a.train_frac, a.freq, meta=meta)
+        flows.save_report(result, a.save, a.train_frac, a.freq, meta=meta)
 
 
 def cmd_flowmodel(a):
-    from .flowmodel import run_experiment
+    from .evaluate import import_research
     from .provenance import build_meta
+    flowmodel = import_research("flowmodel")
     meta = (build_meta(a.command_line, [a.file],
                        seeds={"random_forest": 42, "isolation_forest": 42, "bootstrap": 42})
             if a.save else None)
-    run_experiment(a.file, a.train_frac, a.extended, a.diagnose, a.audit_labels, a.save,
-                   attack_label=a.attack_label, meta=meta)
+    flowmodel.run_experiment(a.file, a.train_frac, a.extended, a.diagnose, a.audit_labels, a.save,
+                             attack_label=a.attack_label, meta=meta)
 
 
 def cmd_reproduce(a):
@@ -176,10 +204,12 @@ def cmd_reproduce(a):
                      command_line=a.command_line)
 
 
-def cmd_render_results(_a):
+def cmd_render_results(a):
     from .render_results import render_results
-    markdown_path, readme_path = render_results()
-    print(f"wrote {markdown_path}")
+    write_docs = True if getattr(a, "write_docs", False) else None
+    markdown_path, readme_path = render_results(write_docs=write_docs)
+    if markdown_path is not None:
+        print(f"wrote {markdown_path}")
     print(f"updated {readme_path}")
 
 
@@ -240,6 +270,7 @@ def main(argv=None):
     s = sub.add_parser("analyze", help="analyse a pcap file and print alerts")
     s.add_argument("file")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--quiet", "-q", action="store_true", help="suppress individual alert lines")
     s.add_argument("--policy")
     s.add_argument("--db")
     s.set_defaults(fn=cmd_analyze)
@@ -317,6 +348,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_reproduce)
 
     s = sub.add_parser("render-results", help="generate docs/RESULTS.md and the README results block")
+    s.add_argument("--write-docs", action="store_true", help="write docs/RESULTS.md even if docs/ is absent")
     s.set_defaults(fn=cmd_render_results)
 
     s = sub.add_parser("bench", help="throughput in packets per second")

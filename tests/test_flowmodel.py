@@ -9,7 +9,7 @@ from pathlib import Path
 
 try:
     import pandas as pd
-    from packetlens.flowmodel import (feature_columns, load_flow_data, select_alarm_threshold,
+    from research.flowmodel import (feature_columns, load_flow_data, select_alarm_threshold,
                                       split_cleaner_machine_rows, split_held_out_machines, time_split)
     from packetlens.cli import main
 except (ImportError, RuntimeError):

@@ -48,6 +48,36 @@ class DetectorTests(unittest.TestCase):
         for i in range(500):          # one SYN per port: that is a scan, not a flood
             self.assertEqual(list(d.observe(pkt(synth.tcp_frame("9.9.9.9", "10.0.0.1", 5000, 1000 + i, SYN), 200 + i * 0.001))), [])
 
+    def test_syn_flood_mid_second_cooldown_expiry_and_out_of_order(self):
+        d = SynFloodDetector(threshold=10, cooldown=30.0)
+        alerts = []
+        # Initial flood at t=100.5 triggers at packet 10
+        for i in range(12):
+            alerts += d.observe(pkt(synth.tcp_frame(f"1.1.1.{i+1}", "10.0.0.1", 5000, 80, SYN), 100.5 + i * 0.001))
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].data["observed"], 10)
+
+        # Next flood starts at t=130.1 (cooldown expires at 130.5)
+        mid_alerts = []
+        for i in range(20):
+            ts = 130.1 + i * 0.04   # packet 10 at 130.46 (in cooldown); packet 11 at 130.50 (cooldown expired!)
+            mid_alerts += d.observe(pkt(synth.tcp_frame(f"2.2.2.{i+1}", "10.0.0.1", 5000, 80, SYN), ts))
+        self.assertEqual(len(mid_alerts), 1)
+        self.assertGreater(mid_alerts[0].data["observed"], 10)
+
+        # Out-of-order packets must not wipe the active second bucket
+        d2 = SynFloodDetector(threshold=5, cooldown=30.0)
+        for i in range(3):
+            self.assertEqual(list(d2.observe(pkt(synth.tcp_frame(f"3.3.3.{i+1}", "10.0.0.1", 5000, 80, SYN), 201.1 + i * 0.01))), [])
+        # Minor backward out-of-order packet in sec 200 and stale packet in sec 195
+        self.assertEqual(list(d2.observe(pkt(synth.tcp_frame("3.3.3.99", "10.0.0.1", 5000, 80, SYN), 200.9))), [])
+        self.assertEqual(list(d2.observe(pkt(synth.tcp_frame("3.3.3.98", "10.0.0.1", 5000, 80, SYN), 195.0))), [])
+        # Next 2 packets in sec 201 reach threshold=5
+        self.assertEqual(list(d2.observe(pkt(synth.tcp_frame("3.3.3.4", "10.0.0.1", 5000, 80, SYN), 201.2))), [])
+        res = list(d2.observe(pkt(synth.tcp_frame("3.3.3.5", "10.0.0.1", 5000, 80, SYN), 201.3)))
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].data["observed"], 5)
+
     def test_dns_tunnel_and_normal_dns(self):
         d, alerts = DnsTunnelDetector(), []
         for i in range(30):
@@ -75,6 +105,16 @@ class TimeSeriesTests(unittest.TestCase):
             out += agg.add(pkt(synth.tcp_frame("10.0.0.1", "10.0.0.2", 1, 2, ACK), ts))
         out += agg.flush()
         self.assertEqual([b["packets"] for b in out], [2, 0, 0, 1])
+
+    def test_out_of_order_timestamps_tracked_in_bins_and_engine(self):
+        e = Engine()
+        for ts in (100.2, 101.5, 101.1, 100.9):
+            e.process(ts, synth.tcp_frame("10.0.0.1", "10.0.0.2", 1, 2, ACK))
+        e.finish()
+        snap = e.snapshot()
+        self.assertEqual(snap["out_of_order"], 2)
+        self.assertEqual(snap["now"], 101.5)
+        self.assertEqual([b["packets"] for b in snap["bins"]], [1, 2])
 
     def test_zscore_flags_spike_once_and_adapts(self):
         z, alerts = EwmaZScoreDetector(), []

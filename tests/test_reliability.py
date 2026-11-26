@@ -334,6 +334,64 @@ class ReliabilityAndObservabilityTests(unittest.TestCase):
         finally:
             engine.store.close()
 
+    def test_cli_analyze_empty_pcap_and_capture_stop_event(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import socket
+        from packetlens import capture, cli, evaluate
+        from packetlens.pcap import PcapWriter
+
+        empty_pcap = os.path.join(self.temp.name, "empty.pcap")
+        with PcapWriter(empty_pcap):
+            pass
+        cli.cmd_analyze(SimpleNamespace(file=empty_pcap, json=False, quiet=True, policy=None, db=self.db_path))
+
+        # Missing research package surfaces helpful RuntimeError cleanly and bin_level degrades to None
+        with patch("importlib.util.find_spec", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "research.flows"):
+                evaluate.import_research("flows")
+            res = evaluate.bin_level([], [], [])
+            self.assertIsNone(res["isolation_forest"])
+
+        # capture.live_packets uses timeout + stop_event for clean shutdown and validates linktype
+        stop = threading.Event()
+
+        class FakeSocket:
+            def __init__(self):
+                self.timeout = None
+                self.closed = False
+                self.calls = 0
+
+            def settimeout(self, t):
+                self.timeout = t
+
+            def bind(self, _addr):
+                pass
+
+            def getsockname(self):
+                return ("eth0", 0, 0, 1, b"")
+
+            def recvfrom(self, _bufsize):
+                self.calls += 1
+                if self.calls == 1:
+                    raise TimeoutError("timed out")
+                stop.set()
+                return b"frame", ("eth0", 0, 0, 1, b"")
+
+            def close(self):
+                self.closed = True
+
+        fake = FakeSocket()
+        with patch.object(socket, "AF_PACKET", 17, create=True), \
+             patch.object(socket, "SOCK_RAW", 3, create=True), \
+             patch("socket.socket", return_value=fake):
+            pkts = list(capture.live_packets("eth0", stop_event=stop))
+        self.assertEqual(fake.timeout, 0.5)
+        self.assertTrue(fake.closed)
+        self.assertEqual(len(pkts), 1)
+        self.assertEqual((pkts[0][1], pkts[0][2]), (b"frame", 1))
+        self.assertIsNone(capture.live_linktype(803))
+
 
 if __name__ == "__main__":
     unittest.main()
