@@ -5,53 +5,144 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="packetlens-token" content="">
   <meta name="color-scheme" content="light dark">
-  <title>PacketLens | Operations</title>
+  <title>PacketLens — Network Telemetry</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <div class="shell">
-    <aside class="rail" aria-label="Primary">
-      <a class="brand" href="#/overview" aria-label="PacketLens overview">
-        <span class="brand-mark" aria-hidden="true">PL</span>
-        <span>PacketLens</span>
-      </a>
-      <nav class="nav">
-        <a href="#/overview" data-route="/overview">Overview</a>
-        <a href="#/incidents" data-route="/incidents">Incidents</a>
-        <a href="#/hosts" data-route="/hosts">Hosts</a>
-        <a href="#/quality" data-route="/quality">Detection quality</a>
-        <a href="#/policies" data-route="/policies">Policies</a>
+  <div class="shell" id="app-shell">
+    <div class="rail-backdrop" id="rail-backdrop" hidden></div>
+    <aside class="rail" id="app-rail" aria-label="Primary Navigation">
+      <div class="rail-header">
+        <a class="brand" href="#/overview" aria-label="PacketLens Console">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="2.5" y="2.5" width="15" height="15" rx="2.5"/>
+              <path d="M5 12.5l3-3 2.5 2.5 4.5-5"/>
+            </svg>
+          </span>
+          <div class="brand-text">
+            <span class="brand-title">PacketLens</span>
+            <span class="brand-sub">Network Monitor</span>
+          </div>
+        </a>
+        <button type="button" class="rail-close-btn" id="rail-close-btn" aria-label="Close navigation menu">&times;</button>
+      </div>
+
+      <nav class="nav" aria-label="Main Navigation">
+        <a href="#/overview" data-route="/overview" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M3 13.5l4-4 3.5 3.5L17 6.5"/>
+            <path d="M12 6.5h5v5"/>
+          </svg>
+          <span class="nav-label">Overview</span>
+        </a>
+        <a href="#/incidents" data-route="/incidents" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M10 2.5l7 12.5H3L10 2.5z"/>
+            <path d="M10 7.5v4M10 13.5v.5"/>
+          </svg>
+          <span class="nav-label">Incidents</span>
+          <span class="nav-badge" id="nav-incidents-badge" hidden>0</span>
+        </a>
+        <a href="#/hosts" data-route="/hosts" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/>
+            <path d="M7 16.5h6M10 13.5v3"/>
+          </svg>
+          <span class="nav-label">Hosts</span>
+        </a>
+        <a href="#/quality" data-route="/quality" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="10" cy="10" r="7.5"/>
+            <path d="M10 6v4l2.5 2.5"/>
+          </svg>
+          <span class="nav-label">Detection Quality</span>
+        </a>
+        <a href="#/policies" data-route="/policies" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M5 3.5h10v13H5zM8 7h4M8 10h4M8 13h2"/>
+          </svg>
+          <span class="nav-label">Policies</span>
+        </a>
       </nav>
-      <p class="rail-foot">LOCAL MONITORING<br><span>Loopback service</span></p>
+
+      <div class="rail-foot">
+        <div class="rail-status-card">
+          <div class="status-row">
+            <span class="status-indicator-dot" id="rail-status-dot" aria-hidden="true"></span>
+            <span class="status-tag" id="rail-status-tag">LOCAL CONSOLE</span>
+          </div>
+          <div class="rail-metrics" id="rail-metrics">
+            <span class="rail-metric-item" id="rail-rss-metric">RSS &mdash;</span>
+            <span class="rail-metric-sep">&middot;</span>
+            <span class="rail-metric-item" id="rail-ver-metric">v1.0.0</span>
+          </div>
+        </div>
+      </div>
     </aside>
 
     <div class="workspace">
       <header class="topbar">
-        <div class="capture-label">
+        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open navigation menu">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M3 5h14M3 10h14M3 15h14"/>
+          </svg>
+        </button>
+
+        <div class="capture-identity">
           <span class="eyebrow">CAPTURE SOURCE</span>
-          <strong id="source-name">Connecting</strong>
-        </div>
-        <div class="topbar-tools">
-          <div class="clock">
-            <span class="eyebrow">PACKET TIME</span>
-            <time id="packet-clock">—</time>
+          <div class="capture-title-wrap">
+            <strong id="source-name" class="capture-source-name">Connecting</strong>
+            <span class="telemetry-mode-pill" id="telemetry-mode-pill">Connecting</span>
           </div>
+        </div>
+
+        <div class="topbar-tools">
+          <div class="topbar-stat storage-stat" id="storage-pill" title="SQLite write queue status">
+            <span class="eyebrow">STORE</span>
+            <span class="stat-text" id="storage-status-text">Active</span>
+          </div>
+
+          <div class="topbar-stat clock-stat">
+            <span class="eyebrow">PACKET TIME</span>
+            <time id="packet-clock" class="stat-mono">&mdash;</time>
+          </div>
+
           <div class="health-indicator" id="health-indicator" role="status" aria-live="polite">
             <span class="status-mark" aria-hidden="true"></span>
-            <span id="health-label">Connecting</span>
+            <span id="health-label" class="health-label">Connecting</span>
           </div>
-          <button type="button" class="quiet-button" id="time-toggle" aria-pressed="true">UTC</button>
-          <button type="button" class="quiet-button" id="theme-toggle" aria-pressed="false">Dark theme</button>
+
+          <div class="button-group">
+            <button type="button" class="quiet-button" id="time-toggle" aria-pressed="true" title="Toggle time format (UTC or Local)">UTC</button>
+            <button type="button" class="quiet-button" id="theme-toggle" aria-pressed="true" title="Toggle color theme">Dark</button>
+          </div>
         </div>
       </header>
 
       <div class="stale-banner" id="stale-banner" role="alert" hidden>
-        Server unavailable. Displayed values may be stale.
+        <div class="banner-content">
+          <span class="banner-icon" aria-hidden="true">!</span>
+          <span class="banner-message" id="stale-banner-msg">Server unavailable. Displayed values may be stale.</span>
+        </div>
+        <span class="banner-time" id="stale-banner-time"></span>
       </div>
-      <div class="live-region" id="incident-announcer" aria-live="polite" aria-atomic="true"></div>
-      <main id="view" tabindex="-1" aria-live="off"></main>
-      <footer class="footer">PacketLens <span id="version"></span> · Technical operations console</footer>
+
+      <div class="live-region sr-only" id="incident-announcer" aria-live="polite" aria-atomic="true"></div>
+
+      <main id="view" class="main-view" tabindex="-1" aria-live="off"></main>
+
+      <footer class="footer">
+        <div class="footer-left">
+          <span>PacketLens <span id="version">v1.0.0</span></span>
+          <span class="footer-sep">&middot;</span>
+          <span>SQLite Telemetry Store</span>
+        </div>
+        <div class="footer-right">
+          <span id="footer-refresh-indicator">Refreshed &mdash;</span>
+        </div>
+      </footer>
     </div>
   </div>
 </body>
