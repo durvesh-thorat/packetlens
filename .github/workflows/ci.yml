@@ -30,7 +30,7 @@ jobs:
       - name: Run CLI smoke checks and verify docs decoupling
         run: |
           python -m packetlens policy validate packetlens/policies/default.json
-          python -m packetlens generate /tmp/ci-smoke.pcap --duration 10 --seed 1
+          python -m packetlens generate /tmp/ci-smoke.pcap --duration 280 --seed 1
           python -m packetlens analyze /tmp/ci-smoke.pcap --db /tmp/ci-smoke.db
           python -m packetlens report --db /tmp/ci-smoke.db --out /tmp/ci-smoke.html
           python -m packetlens store backup --db /tmp/ci-smoke.db --out /tmp/ci-smoke-backup.db
