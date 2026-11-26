@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 try:
-    from packetlens.flowmodel import load_flow_data
+    from research.flowmodel import load_flow_data
 except RuntimeError:
     load_flow_data = None
 

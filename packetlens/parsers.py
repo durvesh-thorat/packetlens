@@ -9,10 +9,14 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 FIN, SYN, RST, PSH, ACK, URG = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
-ETH_IPV4, ETH_ARP, ETH_VLAN, ETH_IPV6 = 0x0800, 0x0806, 0x8100, 0x86DD
+ETH_IPV4, ETH_ARP, ETH_VLAN, ETH_QINQ, ETH_IPV6 = 0x0800, 0x0806, 0x8100, 0x88A8, 0x86DD
 PROTO_ICMP, PROTO_TCP, PROTO_UDP, PROTO_ICMPV6 = 1, 6, 17, 58
 LINKTYPE_ETHERNET, LINKTYPE_LINUX_SLL = 1, 113
 SUPPORTED_LINKTYPES = (LINKTYPE_ETHERNET, LINKTYPE_LINUX_SLL)
+MAX_VLAN_TAGS = 4
+MAX_IPV6_EXT_HEADERS = 8
+_IPV6_VARLEN_EXT = {0, 43, 60}
+_IPV6_FRAG_EXT = 44
 
 
 class Malformed(Exception):
@@ -78,9 +82,6 @@ def _parse(ts, data, linktype):
         pkt.eth_dst, pkt.eth_src = data[0:6], data[6:12]
         (etype,) = struct.unpack_from("!H", data, 12)
         off = 14
-        if etype == ETH_VLAN:                       # 802.1Q tag adds 4 bytes
-            (etype,) = struct.unpack_from("!H", data, 16)
-            off = 18
     elif linktype == LINKTYPE_LINUX_SLL:            # "cooked" capture from `tcpdump -i any`
         if len(data) < 16:
             raise Malformed
@@ -88,6 +89,13 @@ def _parse(ts, data, linktype):
         off = 16
     else:
         return None
+    tags = 0
+    while etype in (ETH_VLAN, ETH_QINQ):
+        if tags >= MAX_VLAN_TAGS or len(data) < off + 4:
+            raise Malformed
+        (etype,) = struct.unpack_from("!H", data, off + 2)
+        off += 4
+        tags += 1
     pkt.ethertype = etype
     if etype == ETH_IPV4:
         _parse_ipv4(pkt, data, off)
@@ -125,8 +133,41 @@ def _parse_ipv6(pkt, data, off):
     pkt.ttl, pkt.proto = hop, nxt
     pkt.src = socket.inet_ntop(socket.AF_INET6, data[off + 8:off + 24])
     pkt.dst = socket.inet_ntop(socket.AF_INET6, data[off + 24:off + 40])
-    if nxt in (PROTO_TCP, PROTO_UDP, PROTO_ICMPV6):  # extension headers are not followed
-        _parse_transport(pkt, data, off + 40, min(off + 40 + payload_len, len(data)))
+    cur = off + 40
+    end = min(cur + payload_len, len(data))
+    for _ in range(MAX_IPV6_EXT_HEADERS):
+        if nxt in (PROTO_TCP, PROTO_UDP, PROTO_ICMPV6):
+            pkt.proto = nxt
+            _parse_transport(pkt, data, cur, end)
+            return
+        if nxt in _IPV6_VARLEN_EXT:
+            if cur + 8 > end:
+                raise Malformed
+            ext_len = (data[cur + 1] + 1) * 8
+            if cur + ext_len > end:
+                raise Malformed
+            nxt = data[cur]
+            cur += ext_len
+            pkt.proto = nxt
+        elif nxt == _IPV6_FRAG_EXT:
+            if cur + 8 > end:
+                raise Malformed
+            frag_next = data[cur]
+            (frag_off_flags,) = struct.unpack_from("!H", data, cur + 2)
+            nxt = frag_next
+            cur += 8
+            pkt.proto = nxt
+            if frag_off_flags & 0xFFF8:             # non-first fragment: no transport header
+                return
+        else:
+            pkt.proto = nxt
+            return
+    if nxt in (PROTO_TCP, PROTO_UDP, PROTO_ICMPV6):
+        pkt.proto = nxt
+        _parse_transport(pkt, data, cur, end)
+        return
+    if nxt in _IPV6_VARLEN_EXT or nxt == _IPV6_FRAG_EXT:
+        raise Malformed
 
 
 def _parse_transport(pkt, data, off, end):
@@ -147,6 +188,8 @@ def _parse_transport(pkt, data, off, end):
         if sport == 53 or dport == 53:
             pkt.dns = parse_dns(data[off + 8:end])
     elif p in (PROTO_ICMP, PROTO_ICMPV6):
+        if end - off < 1:
+            raise Malformed
         pkt.icmp_type = data[off]
 
 

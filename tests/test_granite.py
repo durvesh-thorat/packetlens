@@ -10,7 +10,7 @@ except ImportError:
 else:
     GRANITE_AVAILABLE = True
 
-from packetlens.ml import GraniteForecastDetector
+from research.ml import GraniteForecastDetector
 
 
 @unittest.skipUnless(GRANITE_AVAILABLE, "torch and tsfm_public are required")

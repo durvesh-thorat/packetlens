@@ -92,20 +92,41 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(health["source_stale"])
         self.assertLess(health["source_age_s"], SOURCE_STALE_AFTER_S)
         self.assertEqual(health["source_last_packet_ts"], 1_700_000_000.25)
+        self.assertIn("bytes_per_s", health)
+        self.assertIn("out_of_order", health)
+        self.assertEqual(health["open_incidents"], 1)
+        self.assertEqual(health["stored_packets"], 1)
+        self.assertGreater(health["stored_bytes"], 0)
+        self.assertIsNone(health["stored_malformed"])
+
+        # Persisted totals surface on /api/health even before new live packets arrive
+        self.store.record_capture("prior.pcap", 42, 4200, 1, 1_699_999_900.0, 1_699_999_950.0, 0)
+        status, _headers, health_after = self.json_request("/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(health_after["stored_packets"], 42)
+        self.assertEqual(health_after["stored_bytes"], 4200)
+        self.assertEqual(health_after["stored_malformed"], 1)
 
         status, _headers, overview = self.json_request("/api/overview?window=300")
         self.assertEqual(status, 200)
         self.assertTrue({"window", "bins", "protocol_mix", "top_talkers",
-                         "open_incidents_by_severity", "recent_incidents"} <= overview.keys())
-        for window in (900, 3600):
+                         "open_incidents_by_severity", "recent_incidents", "total_alerts"} <= overview.keys())
+        for window in (60, 900, 3600):
             self.assertEqual(self.json_request(f"/api/overview?window={window}")[0], 200)
         self.assertEqual(self.json_request("/api/overview?window=5")[0], 400)
+        self.assertIn("time_bounds", overview)
+        self.assertTrue(overview["time_bounds"]["is_live"])
+        self.assertEqual(self.json_request("/api/overview?window=300&until=1700000000.25")[0], 200)
+        self.assertEqual(self.json_request("/api/overview?window=300&until=-1")[0], 400)
+        self.assertEqual(self.json_request("/api/overview?window=300&until=notanumber")[0], 400)
 
-        status, _headers, incidents = self.json_request("/api/incidents?limit=1&offset=0")
+        status, _headers, incidents = self.json_request("/api/incidents?limit=1&offset=0&sort=severity&dir=asc")
         self.assertEqual(status, 200)
         self.assertEqual(incidents["total"], 1)
         self.assertEqual(len(incidents["items"]), 1)
         self.assertEqual(incidents["items"][0]["src"], self.src)
+        self.assertEqual(self.json_request("/api/incidents?sort=bogus")[0], 400)
+        self.assertEqual(self.json_request("/api/incidents?dir=bogus")[0], 400)
         detail_status, _headers, incident = self.json_request(f"/api/incidents/{self.incident_id}")
         self.assertEqual(detail_status, 200)
         self.assertEqual(incident["alerts"][0]["src"], self.src)
@@ -198,6 +219,12 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["status"], "acknowledged")
+        detail_status, _headers, updated_incident = self.json_request(f"/api/incidents/{self.incident_id}")
+        self.assertEqual(detail_status, 200)
+        self.assertIn("audit_log", updated_incident)
+        self.assertEqual(len(updated_incident["audit_log"]), 1)
+        self.assertEqual(updated_incident["audit_log"][0]["action"], "acknowledged")
+        self.assertEqual(updated_incident["audit_log"][0]["note"], "triaged")
         status, _headers, body = self.request(
             "POST", f"/api/incidents/{self.incident_id}/status",
             json.dumps({"status": "acknowledged", "note": "again"}),
@@ -234,6 +261,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Alert timeline", report)
         self.assertIn("Dropped store writes", report)
         self.assertIn("Policies in force", report)
+        # Host last_seen formatted as UTC timestamp rather than raw float
+        self.assertIn("2023-11-14 22:13:20 UTC", report)
+        self.assertNotIn("1700000000.25", report)
 
         for script in (ROOT / "packetlens" / "static").glob("*.js"):
             source = script.read_text(encoding="utf-8")
@@ -245,6 +275,54 @@ class DashboardTests(unittest.TestCase):
             source = asset.read_text(encoding="utf-8")
             source = source.replace("http://www.w3.org/2000/svg", "")
             self.assertIsNone(re.search(r"https?://", source, re.IGNORECASE), asset)
+
+    def test_allow_non_loopback_permits_configured_host_and_rejects_unknown_host(self):
+        handler = make_handler(
+            self.engine, self.store, self.token, "remote capture",
+            effective_policy(), self.results, 0,
+            source_health=self.source_health,
+            allow_non_loopback=True,
+            allowed_hosts=["192.168.1.50"],
+            wildcard_bind=False,
+        )
+        remote_server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        remote_server.daemon_threads = True
+        remote_thread = threading.Thread(target=remote_server.serve_forever, daemon=True)
+        remote_thread.start()
+        rport = remote_server.server_address[1]
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", rport, timeout=3)
+            try:
+                conn.request("GET", "/api/health", headers={"Host": f"192.168.1.50:{rport}"})
+                self.assertEqual(conn.getresponse().status, 200)
+                conn.request("GET", "/api/health", headers={"Host": f"attacker.example:{rport}"})
+                self.assertEqual(conn.getresponse().status, 403)
+            finally:
+                conn.close()
+        finally:
+            remote_server.shutdown()
+            remote_server.server_close()
+            remote_thread.join(timeout=2)
+
+    def test_consume_throttles_source_health_updates_on_burst(self):
+        from packetlens.dashboard import _consume
+        calls = []
+        orig = self.source_health.packet_received
+
+        def spy(ts):
+            calls.append(ts)
+            return orig(ts)
+
+        self.source_health.packet_received = spy
+        frame = synth.tcp_frame("10.0.0.1", "10.0.0.2", 50000, 443, synth.ACK)
+
+        def burst():
+            for i in range(600):
+                yield 1_700_000_000.0 + i * 0.0001, frame, 1
+
+        _consume(self.engine, burst, self.store, "burst.pcap", threading.Event(), self.source_health)
+        self.assertLess(len(calls), 50)
+        self.assertAlmostEqual(self.source_health.status()["source_last_packet_ts"], 1_700_000_000.0599, places=4)
 
 
 if __name__ == "__main__":

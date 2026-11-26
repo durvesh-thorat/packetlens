@@ -1,3 +1,4 @@
+import importlib.util
 import random
 import tempfile
 import unittest
@@ -5,9 +6,11 @@ from pathlib import Path
 
 try:
     import pandas as pd
-    from packetlens.flows import evaluate_flows, load_flows, to_series
+    from research.flows import evaluate_flows, load_flows, to_series
 except (ImportError, RuntimeError):      # pandas not installed: skip
     pd = None
+
+SKLEARN_AVAILABLE = importlib.util.find_spec("sklearn") is not None
 
 COLS = [" Source IP", " Destination IP", " Destination Port", " Timestamp", " Total Fwd Packets",
         " Total Backward Packets", "Total Length of Fwd Packets", " Total Length of Bwd Packets",
@@ -71,9 +74,20 @@ class FlowTests(unittest.TestCase):
         write_csv(f"{d}/mon.csv", day_rows(random.Random(3), 9, 300))
         write_csv(f"{d}/fri.csv", day_rows(random.Random(4), 3, 60, attack=(30, 40)))
         r = evaluate_flows(f"{d}/mon.csv", f"{d}/fri.csv")
-        self.assertEqual(set(r["methods"]), {"zscore_adaptive", "zscore_frozen", "isolation_forest"})
+        expected_methods = {"zscore_adaptive", "zscore_frozen"}
+        if SKLEARN_AVAILABLE:
+            expected_methods.add("isolation_forest")
+        self.assertEqual(set(r["methods"]), expected_methods)
         self.assertGreaterEqual(r["methods"]["zscore_adaptive"]["recall"], 0.8)
         self.assertEqual(r["methods"]["zscore_adaptive"]["recall_by_attack"]["DDoS"] >= 0.8, True)
+
+    @unittest.skipUnless(SKLEARN_AVAILABLE, "scikit-learn not installed")
+    def test_end_to_end_includes_isolation_forest(self):
+        d = tempfile.mkdtemp()
+        write_csv(f"{d}/mon.csv", day_rows(random.Random(3), 9, 300))
+        write_csv(f"{d}/fri.csv", day_rows(random.Random(4), 3, 60, attack=(30, 40)))
+        r = evaluate_flows(f"{d}/mon.csv", f"{d}/fri.csv")
+        self.assertIn("isolation_forest", r["methods"])
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ class Engine:
         with self._lock:
             self.total_packets += 1
             self.total_bytes += pkt.length
-            self.last_ts = pkt.ts
+            self.last_ts = pkt.ts if self.total_packets == 1 else max(self.last_ts, pkt.ts)
             proto = protocol_name(pkt)
             self.protocols[proto] += 1
             if self.store is not None:
@@ -164,7 +164,10 @@ class Engine:
     def _flush_store(self):
         if self.store is None:
             return
-        self.store.upsert_hosts(self.hosts.snapshot())
+        dirty_hosts = self.hosts.snapshot(dirty_only=True)
+        if dirty_hosts:
+            if self.store.upsert_hosts(dirty_hosts) is not None:
+                self.hosts.clear_dirty()
         while self._pending_bins:
             self.store.add_minute_stat(self._pending_bins.popleft())
         self.store.flush()
@@ -189,6 +192,7 @@ class Engine:
                 "total_packets": self.total_packets,
                 "total_bytes": self.total_bytes,
                 "malformed": self.malformed,
+                "out_of_order": self.agg.out_of_order,
                 "now": self.last_ts,
                 "avg_processing_us": avg_us,
                 "max_processing_us": max_us,

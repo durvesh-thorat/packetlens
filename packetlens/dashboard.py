@@ -1,13 +1,16 @@
 """Loopback HTTP console for PacketLens."""
 import hmac
+import inspect
 import ipaddress
 import json
 import logging
 import math
 import secrets
+import socket
 import sys
 import threading
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -155,32 +158,38 @@ class SnapshotCache:
             if self.snapshot is None or now - self.refreshed_at >= 1.0:
                 self.snapshot = self.engine.snapshot()
                 self.refreshed_at = now
-                self.samples.append((now, self.snapshot["total_packets"]))
+                self.samples.append((now, self.snapshot["total_packets"], self.snapshot["total_bytes"]))
                 cutoff = now - 10.0
                 while len(self.samples) > 2 and self.samples[1][0] <= cutoff:
                     self.samples.pop(0)
             return self.snapshot
 
-    def packets_per_s(self):
+    def _rate(self, index):
         self.get()
         with self.lock:
             if len(self.samples) < 2:
                 return 0.0
-            end_time, end_count = self.samples[-1]
+            end_time, end_val = self.samples[-1][0], self.samples[-1][index]
             cutoff = end_time - 10.0
-            start_count = self.samples[0][1]
+            start_val = self.samples[0][index]
             start_time = max(cutoff, self.samples[0][0])
             for left, right in zip(self.samples, self.samples[1:]):
                 if left[0] <= cutoff < right[0]:
                     span = right[0] - left[0]
                     fraction = (cutoff - left[0]) / span if span else 0
-                    start_count = left[1] + fraction * (right[1] - left[1])
+                    start_val = left[index] + fraction * (right[index] - left[index])
                     start_time = cutoff
                     break
                 if right[0] <= cutoff:
-                    start_count, start_time = right[1], right[0]
+                    start_val, start_time = right[index], right[0]
             elapsed = max(0.001, end_time - start_time)
-            return max(0.0, (end_count - start_count) / elapsed)
+            return max(0.0, (end_val - start_val) / elapsed)
+
+    def packets_per_s(self):
+        return self._rate(1)
+
+    def bytes_per_s(self):
+        return self._rate(2)
 
 
 def _persist_bins(engine, store, last_t):
@@ -194,19 +203,37 @@ def _persist_bins(engine, store, last_t):
     return last_t
 
 
+def _iter_source(source, stop_event):
+    try:
+        if "stop_event" in inspect.signature(source).parameters:
+            return source(stop_event=stop_event)
+    except (TypeError, ValueError):
+        pass
+    return source()
+
+
 def _consume(engine, source, store, source_name, stop_event, source_health=None):
     first_ts = last_ts = None
+    packet_count = 0
+    last_health_update = 0.0
     try:
-        for packet in source():
+        for packet in _iter_source(source, stop_event):
             if stop_event.is_set():
                 break
             ts, data, *linktype_value = packet
             linktype = linktype_value[0] if linktype_value else 1
             first_ts = ts if first_ts is None else first_ts
             last_ts = ts
+            packet_count += 1
             if source_health is not None:
-                source_health.packet_received(ts)
+                now_mono = time.monotonic()
+                if (packet_count == 1 or (packet_count & 0xFF) == 0
+                        or now_mono - last_health_update >= 0.05):
+                    source_health.packet_received(ts)
+                    last_health_update = now_mono
             engine.process(ts, data, linktype)
+        if source_health is not None and last_ts is not None:
+            source_health.packet_received(last_ts)
     except Exception as exc:
         if source_health is not None:
             source_health.record_error(exc)
@@ -224,10 +251,21 @@ def _consume(engine, source, store, source_name, stop_event, source_health=None)
 
 
 def make_handler(engine, store, token, source, policy, results_dir, started_at, snapshots=None,
-                 source_health=None):
+                 source_health=None, allow_non_loopback=False, allowed_hosts=None,
+                 wildcard_bind=None):
     snapshots = snapshots or SnapshotCache(engine)
     source_health = source_health or SourceHealth(engine, started_at)
     results_path = Path(results_dir)
+    allowed_hosts_set = {"localhost", "127.0.0.1", "::1"}
+    if allow_non_loopback:
+        for entry in allowed_hosts or ():
+            if entry and entry not in {"0.0.0.0", "::"}:
+                allowed_hosts_set.add(str(entry).lower())
+        for local_name in (socket.gethostname(), socket.getfqdn()):
+            if local_name:
+                allowed_hosts_set.add(local_name.lower())
+    if wildcard_bind is None:
+        wildcard_bind = bool(allow_non_loopback and not allowed_hosts)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, body, content_type, api=False, no_store=False):
@@ -240,8 +278,11 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
             self.send_header("Referrer-Policy", "no-referrer")
             if api or no_store:
                 self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.end_headers()
+                self.wfile.write(body)
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                pass
 
         def _json(self, status, value):
             body = json.dumps(value, ensure_ascii=False, allow_nan=False,
@@ -257,17 +298,41 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
             else:
                 self._json(405, {"error": "method not allowed"})
 
+        def _authority_allowed(self, parsed):
+            try:
+                port = parsed.port
+            except ValueError:
+                return False
+            if (parsed.username is not None or parsed.password is not None
+                    or parsed.path or parsed.query or parsed.fragment):
+                return False
+            port_ok = (port == self.server.server_port
+                       or (port is None and self.server.server_port == 80))
+            if not port_ok or not parsed.hostname:
+                return False
+            hostname = parsed.hostname.lower()
+            if hostname in allowed_hosts_set:
+                return True
+            if allow_non_loopback and wildcard_bind:
+                try:
+                    sock_host = self.connection.getsockname()[0]
+                except OSError:
+                    sock_host = None
+                if sock_host:
+                    sock_host = sock_host.lower()
+                    if sock_host.startswith("::ffff:"):
+                        sock_host = sock_host[7:]
+                    if hostname == sock_host:
+                        return True
+            return False
+
         def _host_allowed(self):
             authority = self.headers.get("Host", "")
             try:
                 parsed = urlsplit("//" + authority)
-                port = parsed.port
             except ValueError:
                 return False
-            return (parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-                    and parsed.username is None and parsed.password is None
-                    and not parsed.path and not parsed.query and not parsed.fragment
-                    and port == self.server.server_port)
+            return self._authority_allowed(parsed)
 
         def _origin_allowed(self):
             origin = self.headers.get("Origin")
@@ -277,10 +342,7 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                 parsed = urlsplit(origin)
             except ValueError:
                 return False
-            return (parsed.scheme in {"http", "https"}
-                    and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-                    and parsed.port == self.server.server_port
-                    and not parsed.path and not parsed.query and not parsed.fragment)
+            return parsed.scheme in {"http", "https"} and self._authority_allowed(parsed)
 
         def _request_url(self):
             try:
@@ -329,6 +391,16 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                     snapshot = snapshots.get()
                     source_state = source_health.status()
                     store_counters = store.counters()
+                    should_flush = store_counters["status"] != "error"
+                    try:
+                        capture_totals = store.capture_summary(flush=should_flush)
+                        summary_totals = store.summary(flush=should_flush)
+                    except Exception:
+                        capture_totals = {"packets": 0, "bytes": 0, "malformed": None}
+                        summary_totals = {"open_by_severity": {}}
+                    open_incidents = sum(
+                        int(count) for count in summary_totals.get("open_by_severity", {}).values()
+                    )
                     degraded_reasons = []
                     if source_state.get("source_error") is not None:
                         degraded_reasons.append("source_error")
@@ -353,7 +425,13 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                         "packets_total": snapshot["total_packets"],
                         "bytes_total": snapshot["total_bytes"],
                         "malformed": snapshot["malformed"],
+                        "out_of_order": snapshot.get("out_of_order", 0),
+                        "stored_packets": int(capture_totals.get("packets") or 0),
+                        "stored_bytes": int(capture_totals.get("bytes") or 0),
+                        "stored_malformed": capture_totals.get("malformed"),
+                        "open_incidents": open_incidents,
                         "packets_per_s": snapshots.packets_per_s(),
+                        "bytes_per_s": snapshots.bytes_per_s(),
                         "avg_processing_us": snapshot.get("avg_processing_us", 0.0),
                         "max_processing_us": snapshot.get("max_processing_us", 0.0),
                         "memory_rss_bytes": _process_rss_bytes(),
@@ -369,11 +447,21 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                 if path == "/api/overview":
                     query = self._query(url.query)
                     window = query.get("window", "300")
-                    if window not in {"300", "900", "3600"}:
-                        raise ValueError("window must be 300, 900, or 3600")
+                    if window not in {"60", "300", "900", "3600"}:
+                        raise ValueError("window must be 60, 300, 900, or 3600")
                     snapshot = snapshots.get()
-                    packet_time = snapshot["now"]
-                    start_time = max(0, packet_time - int(window))
+                    bounds = store.time_bounds()
+                    until_str = query.get("until")
+                    if until_str is not None:
+                        try:
+                            packet_time = float(until_str)
+                            if not math.isfinite(packet_time) or packet_time < 0:
+                                raise ValueError("until must be a finite non-negative number")
+                        except (TypeError, OverflowError):
+                            raise ValueError("until must be a valid timestamp")
+                    else:
+                        packet_time = snapshot["now"] if snapshot["now"] > 0 else (bounds["last_t"] or 0.0)
+                    start_time = max(0.0, packet_time - int(window))
                     bins_by_time = {row["t"]: row for row in store.minute_stats(start_time, packet_time)}
                     for row in snapshot["bins"]:
                         if start_time <= row["t"] <= packet_time:
@@ -385,13 +473,43 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                         severity: int(summary["open_by_severity"].get(severity, 0))
                         for severity in ("critical", "high", "medium", "low")
                     }
+                    first_candidates = [t for t in (bounds["first_t"], snapshot["bins"][0]["t"] if snapshot["bins"] else None) if t is not None]
+                    last_candidates = [t for t in (bounds["last_t"], snapshot["bins"][-1]["t"] if snapshot["bins"] else None, snapshot["now"] if snapshot["now"] > 0 else None) if t is not None]
+                    max_t = max(last_candidates) if last_candidates else 0.0
+                    live_now = snapshot["now"] if snapshot["now"] > 0 else max_t
+                    time_bounds = {
+                        "first_t": min(first_candidates) if first_candidates else None,
+                        "last_t": max_t if last_candidates else None,
+                        "live_now": live_now,
+                        "view_until": packet_time,
+                        "is_live": until_str is None and (snapshot["now"] > 0 or (bounds["last_t"] is not None and abs(packet_time - (bounds["last_t"] or 0.0)) < 2.0)),
+                    }
+                    top_talkers = snapshot["talkers"]
+                    if not top_talkers:
+                        try:
+                            top_talkers = [[h["ip"], h.get("bytes_out", 0)] for h in store.list_hosts(sort="bytes", limit=8)["items"] if h.get("bytes_out", 0) > 0]
+                        except Exception:
+                            top_talkers = []
+                    protocol_mix = snapshot["protocols"]
+                    if not any(protocol_mix.values()):
+                        try:
+                            stored_protos = Counter()
+                            for h in store.list_hosts(limit=50)["items"]:
+                                for p, c in h.get("protocols", {}).items():
+                                    stored_protos[p] += c
+                            if stored_protos:
+                                protocol_mix = dict(stored_protos)
+                        except Exception:
+                            pass
                     self._json(200, {
                         "window": int(window),
                         "bins": bins,
-                        "protocol_mix": snapshot["protocols"],
-                        "top_talkers": snapshot["talkers"],
+                        "protocol_mix": protocol_mix,
+                        "top_talkers": top_talkers,
                         "open_incidents_by_severity": open_by_severity,
+                        "total_alerts": summary.get("total_alerts", 0),
                         "recent_incidents": recent,
+                        "time_bounds": time_bounds,
                     })
                     return
                 if path == "/api/incidents":
@@ -402,11 +520,13 @@ def make_handler(engine, store, token, source, policy, results_dir, started_at, 
                         raise ValueError("invalid incident status filter")
                     if severity and severity not in SEVERITIES:
                         raise ValueError("invalid incident severity filter")
+                    sort = query.get("sort", "last_ts")
+                    direction = query.get("dir", "desc")
                     if len(query.get("kind", "")) > 100 or len(query.get("q", "")) > 200:
                         raise ValueError("kind or q exceeds the maximum length")
                     result = store.list_incidents(status=status or None, severity=severity or None,
                                                   kind=query.get("kind") or None, q=query.get("q") or None,
-                                                  limit=limit, offset=offset)
+                                                  limit=limit, offset=offset, sort=sort, order=direction)
                     self._json(200, result)
                     return
                 if path.startswith("/api/incidents/"):
@@ -634,9 +754,13 @@ def serve(engine, source, host="127.0.0.1", port=8080, *, store=None, source_nam
     stop_event = threading.Event()
     snapshots = SnapshotCache(engine)
     source_health = SourceHealth(engine, started_at)
+    extra_hosts = [] if host in {"0.0.0.0", "::", ""} else [host]
     server = ThreadingHTTPServer(
         (host, port), make_handler(engine, store, token, source_name, policy, results_dir,
-                                   started_at, snapshots, source_health))
+                                   started_at, snapshots, source_health,
+                                   allow_non_loopback=allow_non_loopback,
+                                   allowed_hosts=extra_hosts,
+                                   wildcard_bind=host in {"0.0.0.0", "::", ""}))
     server.daemon_threads = True
     worker = threading.Thread(target=_consume,
                               args=(engine, source, store, source_name, stop_event, source_health),

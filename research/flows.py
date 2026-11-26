@@ -13,10 +13,10 @@ import re
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from .evaluate import _prf
+from packetlens.evaluate import _prf
 from .ml import GraniteForecastDetector, IsolationForestDetector
-from .stats import block_bootstrap
-from .timeseries import EwmaZScoreDetector
+from packetlens.stats import block_bootstrap
+from packetlens.timeseries import EwmaZScoreDetector
 
 try:
     import pandas as pd

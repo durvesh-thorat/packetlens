@@ -4,7 +4,7 @@ import unittest
 
 try:
     import pandas as pd
-    from packetlens.flowmodel import _audit_label_windows
+    from research.flowmodel import _audit_label_windows
 except (ImportError, RuntimeError):
     pd = None
 

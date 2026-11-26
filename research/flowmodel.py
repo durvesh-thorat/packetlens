@@ -21,7 +21,7 @@ try:
 except ImportError as e:  # pragma: no cover - depends on optional environment
     raise RuntimeError("flowmodel requires pandas and scikit-learn: pip install pandas scikit-learn") from e
 
-from .stats import block_bootstrap
+from packetlens.stats import block_bootstrap
 
 
 DEFAULT_FILE = Path("cicids2017_traffic_label") / "Friday-WorkingHours-Morning.pcap_ISCX.csv"

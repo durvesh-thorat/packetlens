@@ -15,6 +15,8 @@ class BinAggregator:
     def __init__(self, width=1.0, max_gap=30):
         self.width, self.max_gap = width, max_gap
         self._idx = None
+        self._last_ts = None
+        self.out_of_order = 0
         self._reset()
 
     def _reset(self):
@@ -29,10 +31,16 @@ class BinAggregator:
 
     def add(self, p):
         """Add a packet. Returns the list of bins that this packet's arrival completed."""
+        if self._last_ts is not None and p.ts < self._last_ts:
+            self.out_of_order += 1
+        else:
+            self._last_ts = p.ts
         idx = int(p.ts // self.width)
         out = []
         if self._idx is None:
             self._idx = idx
+        elif idx < self._idx:
+            return out
         elif idx > self._idx:
             out.append(self._emit())
             gap = idx - self._idx - 1

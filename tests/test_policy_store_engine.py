@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -7,6 +8,7 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from packetlens import synth
 from packetlens.detectors import Alert, HorizontalScanDetector
@@ -126,6 +128,47 @@ class HostTableTests(unittest.TestCase):
         self.assertEqual({row["ip"] for row in hosts.snapshot()}, {"10.0.0.3", "10.0.0.4"})
         self.assertLessEqual(len(hosts._hosts), 2)
 
+    def test_top_ports_excludes_non_tcp_udp_and_port_zero(self):
+        hosts = HostTable()
+        hosts.update(parse_packet(1.0, synth.arp_frame(2, "10.0.0.1", synth.mac_for("10.0.0.1"), "10.0.0.2", b"\0" * 6)))
+        hosts.update(parse_packet(2.0, synth.icmp_echo_frame("10.0.0.1", "10.0.0.2", 1)))
+        hosts.update(SimpleNamespace(ts=3.0, length=60, src="10.0.0.1", dst="10.0.0.2", proto=6, dport=0, dns=None, ethertype=0x0800))
+        hosts.update(SimpleNamespace(ts=4.0, length=60, src="10.0.0.1", dst="10.0.0.2", proto=6, dport=443, dns=None, ethertype=0x0800))
+        by_ip = {row["ip"]: row for row in hosts.snapshot()}
+        self.assertEqual(by_ip["10.0.0.1"]["top_ports"], [[443, 1]])
+
+    def test_dirty_tracking_limits_engine_flush_to_modified_hosts(self):
+        hosts = HostTable()
+        hosts.update(self.packet(1, "10.0.0.1", "10.0.0.2"))
+        self.assertEqual({r["ip"] for r in hosts.snapshot(dirty_only=True)}, {"10.0.0.1", "10.0.0.2"})
+        hosts.clear_dirty()
+        self.assertEqual(hosts.snapshot(dirty_only=True), [])
+        hosts.update(self.packet(2, "10.0.0.3", "10.0.0.4"))
+        hosts.record_alert("10.0.0.1")
+        self.assertEqual({r["ip"] for r in hosts.snapshot(dirty_only=True)}, {"10.0.0.1", "10.0.0.3", "10.0.0.4"})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(os.path.join(tmp, "dirty.db"))
+            try:
+                engine = Engine(store=store)
+                calls = []
+                orig_upsert = store.upsert_hosts
+
+                def spy(rows):
+                    calls.append([r["ip"] for r in rows])
+                    return orig_upsert(rows)
+
+                store.upsert_hosts = spy
+                engine.process(1.0, synth.tcp_frame("10.0.0.1", "10.0.0.2", 1234, 80, SYN))
+                engine.process(15.0, synth.tcp_frame("10.0.0.3", "10.0.0.4", 1235, 443, SYN))
+                engine.process(16.0, synth.tcp_frame("10.0.0.5", "10.0.0.6", 1236, 8080, SYN))
+                engine.finish()
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(set(calls[0]), {"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"})
+                self.assertEqual(set(calls[1]), {"10.0.0.5", "10.0.0.6"})
+            finally:
+                store.close()
+
 
 class StoreTests(unittest.TestCase):
     def setUp(self):
@@ -229,6 +272,77 @@ class StoreTests(unittest.TestCase):
         release.set()
         self.store.flush()
         self.assertGreaterEqual(self.store.counters()["written"], 2)
+
+    def test_host_ip_sort_asc_incident_sort_audit_truncated_and_transient_retry(self):
+        # Hosts ip sort ascending
+        self.store.upsert_hosts([
+            {"ip": "10.0.0.10", "first_seen": 1, "last_seen": 10, "packets_in": 1, "packets_out": 1,
+             "bytes_in": 100, "bytes_out": 100, "peers": [], "peers_truncated": False, "top_ports": [],
+             "protocols": {}, "alert_count": 0},
+            {"ip": "10.0.0.2", "first_seen": 1, "last_seen": 5, "packets_in": 1, "packets_out": 1,
+             "bytes_in": 500, "bytes_out": 500, "peers": [], "peers_truncated": False, "top_ports": [],
+             "protocols": {}, "alert_count": 0},
+        ])
+        self.assertEqual([h["ip"] for h in self.store.list_hosts(sort="ip")["items"]], ["10.0.0.10", "10.0.0.2"])
+        self.assertEqual([h["ip"] for h in self.store.list_hosts(sort="bytes")["items"]], ["10.0.0.2", "10.0.0.10"])
+
+        # Incident server-side sort & order
+        i_low = self.store.add_alert(Alert(100, "arp_spoof", "low", "10.0.0.1", "a"))
+        i_crit = self.store.add_alert(Alert(50, "port_scan", "critical", "10.0.0.2", "b"))
+        self.assertEqual([x["id"] for x in self.store.list_incidents(sort="severity", order="desc")["items"]],
+                         [i_crit, i_low])
+        self.assertEqual([x["id"] for x in self.store.list_incidents(sort="severity", order="asc")["items"]],
+                         [i_low, i_crit])
+        with self.assertRaises(ValueError):
+            self.store.list_incidents(sort="unknown")
+        with self.assertRaises(ValueError):
+            self.store.list_incidents(order="sideways")
+
+        # audit_truncated boolean
+        detail = self.store.get_incident(i_low)
+        self.assertFalse(detail["audit_truncated"])
+        self.store._enqueue(
+            lambda conn: conn.executemany(
+                "INSERT INTO audit_log(incident_id,ts,action,note) VALUES(?,?,?,?)",
+                [(i_low, float(k), "acknowledged", "n") for k in range(205)],
+            ),
+            wait=True,
+        )
+        detail = self.store.get_incident(i_low)
+        self.assertTrue(detail["audit_truncated"])
+        self.assertEqual(len(detail["audit_log"]), 200)
+
+        # Atomic set_incident_status under concurrency
+        target_id = self.store.add_alert(Alert(200, "port_scan", "high", "10.0.0.9", "scan"))
+        results, errors = [], []
+        barrier = threading.Barrier(2)
+
+        def worker(status):
+            barrier.wait()
+            try:
+                results.append(self.store.set_incident_status(target_id, status, "race")["status"])
+            except ValueError as exc:
+                errors.append(str(exc))
+
+        t1 = threading.Thread(target=worker, args=("closed",))
+        t2 = threading.Thread(target=worker, args=("acknowledged",))
+        t1.start(); t2.start(); t1.join(); t2.join()
+        self.assertEqual(len(results) + len(errors), 2)
+        if "closed" in results and len(errors) == 1:
+            self.assertIn("invalid incident status transition", errors[0])
+
+        # Transient sqlite3.OperationalError ("database is locked") recovers with retry
+        attempts = {"n": 0}
+
+        def flaky_write(_conn):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return "recovered"
+
+        self.assertEqual(self.store._enqueue(flaky_write, wait=True), "recovered")
+        self.assertEqual(attempts["n"], 3)
+        self.assertEqual(self.store.counters()["status"], "ok")
 
 
 class IntegrationAndCliTests(unittest.TestCase):

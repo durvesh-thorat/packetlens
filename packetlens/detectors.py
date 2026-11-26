@@ -116,7 +116,8 @@ class SynFloodDetector:
 
     def __init__(self, threshold=300, cooldown=30.0):
         self.threshold, self.cooldown = threshold, cooldown
-        self._b = OrderedDict()  # (dst, dport) -> [second, count, set(sources)]
+        # (dst, dport) -> [cur_bucket, prev_bucket], where bucket = [sec, count, set(sources), alerted]
+        self._b = OrderedDict()
         self._last = {}       # (dst, dport) -> last alert ts
 
     def observe(self, p):
@@ -124,22 +125,40 @@ class SynFloodDetector:
             return ()
         sec = int(p.ts)
         key = (p.dst, p.dport)
-        b = self._b.get(key)
-        if b is None or b[0] != sec:
-            if b is None and len(self._b) >= self.MAX_SERVICES:
+        entry = self._b.get(key)
+        if entry is None:
+            if len(self._b) >= self.MAX_SERVICES:
                 evicted, _ = self._b.popitem(last=False)
                 self._last.pop(evicted, None)
-            b = self._b[key] = [sec, 0, set()]
-        self._b.move_to_end(key)
-        b[1] += 1
-        if len(b[2]) < 1000:
-            b[2].add(p.src)
-        if b[1] == self.threshold and p.ts - self._last.get(key, -1e18) >= self.cooldown:
+            bucket = [sec, 0, set(), False]
+            self._b[key] = [bucket, None]
+        else:
+            self._b.move_to_end(key)
+            cur, prev = entry
+            if sec > cur[0]:
+                entry[1] = cur if sec - cur[0] == 1 else None
+                bucket = [sec, 0, set(), False]
+                entry[0] = bucket
+            elif sec == cur[0]:
+                bucket = cur
+            elif prev is not None and sec == prev[0]:
+                bucket = prev
+            elif cur[0] - sec == 1 and prev is None:
+                bucket = [sec, 0, set(), False]
+                entry[1] = bucket
+            else:
+                return ()
+        bucket[1] += 1
+        if len(bucket[2]) < 1000:
+            bucket[2].add(p.src)
+        if (bucket[1] >= self.threshold and not bucket[3]
+                and p.ts - self._last.get(key, -1e18) >= self.cooldown):
+            bucket[3] = True
             self._last[key] = p.ts
-            srcs = len(b[2])
+            srcs = len(bucket[2])
             return [Alert(p.ts, self.name, "high", p.src if srcs == 1 else "many",
                           f">= {self.threshold} SYN packets/s to {p.dst}:{p.dport} from {srcs} source(s)",
-                          p.dst, data={"threshold": self.threshold, "observed": b[1],
+                          p.dst, data={"threshold": self.threshold, "observed": bucket[1],
                                        "window_s": 1, "destination_port": p.dport,
                                        "sources": srcs})]
         return ()

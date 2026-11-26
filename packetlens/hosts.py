@@ -23,12 +23,14 @@ class HostTable:
     def __init__(self, max_hosts=MAX_HOSTS):
         self.max_hosts = max_hosts
         self._hosts = OrderedDict()
+        self._dirty = set()
 
     def update(self, packet, protocol=None):
         """Update source/destination profiles; malformed/absent addresses are ignored."""
         try:
             src, dst = packet.src, packet.dst
             ts, size = float(packet.ts), int(packet.length)
+            ip_proto = int(packet.proto)
             proto, dport = _PROTOCOL_IDS.get(protocol or _protocol_name(packet), 5), int(packet.dport)
             if not src and packet.arp is not None:
                 src = packet.arp[2]
@@ -36,12 +38,13 @@ class HostTable:
             return
         if size < 0:
             return
+        record_port = ip_proto in (6, 17) and 0 < dport <= 65535
         if src:
-            self._update_one(src, dst, ts, size, proto, dport, outbound=True)
+            self._update_one(src, dst, ts, size, proto, dport, outbound=True, record_port=record_port)
         if dst:
-            self._update_one(dst, src, ts, size, proto, dport, outbound=False)
+            self._update_one(dst, src, ts, size, proto, dport, outbound=False, record_port=False)
 
-    def _update_one(self, ip, peer, ts, size, proto, dport, outbound):
+    def _update_one(self, ip, peer, ts, size, proto, dport, outbound, record_port=False):
         host = self._hosts.get(ip)
         if host is None:
             host = _Host(ip, ts)
@@ -64,12 +67,14 @@ class HostTable:
                 host.peers.add(peer)
             elif peer not in host.peers:
                 host.peers_truncated = True
-        if outbound and 0 <= dport <= 65535:
+        if record_port:
             host.ports[dport] = host.ports.get(dport, 0) + 1
             if len(host.ports) > self.MAX_PORTS:
                 host.ports = dict(sorted(host.ports.items(), key=lambda item: item[1], reverse=True)[:10])
+        self._dirty.add(ip)
         if len(self._hosts) > self.max_hosts:
-            self._hosts.popitem(last=False)
+            evicted_ip, _ = self._hosts.popitem(last=False)
+            self._dirty.discard(evicted_ip)
 
     def record_alert(self, src, dst=""):
         """Increment alert counts for known source and destination profiles."""
@@ -77,23 +82,31 @@ class HostTable:
             host = self._hosts.get(ip)
             if host is not None:
                 host.alert_count += 1
+                self._dirty.add(ip)
 
-    def snapshot(self):
+    @staticmethod
+    def _serialize(host):
+        return {
+            "ip": host.ip, "first_seen": host.first_seen, "last_seen": host.last_seen,
+            "packets_in": host.packets_in, "packets_out": host.packets_out,
+            "bytes_in": host.bytes_in, "bytes_out": host.bytes_out,
+            "peers": sorted(host.peers), "peers_truncated": host.peers_truncated,
+            "top_ports": [[port, count] for port, count in
+                          sorted(host.ports.items(), key=lambda item: item[1], reverse=True)[:10]],
+            "protocols": {name: host.protocols[index] for index, name in enumerate(_PROTOCOL_NAMES)
+                          if host.protocols[index]},
+            "alert_count": host.alert_count,
+        }
+
+    def snapshot(self, dirty_only=False):
         """Return JSON-compatible profiles; resident state is capped by MAX_HOSTS."""
-        result = []
-        for host in self._hosts.values():
-            result.append({
-                "ip": host.ip, "first_seen": host.first_seen, "last_seen": host.last_seen,
-                "packets_in": host.packets_in, "packets_out": host.packets_out,
-                "bytes_in": host.bytes_in, "bytes_out": host.bytes_out,
-                "peers": sorted(host.peers), "peers_truncated": host.peers_truncated,
-                "top_ports": [[port, count] for port, count in
-                              sorted(host.ports.items(), key=lambda item: item[1], reverse=True)[:10]],
-                "protocols": {name: host.protocols[index] for index, name in enumerate(_PROTOCOL_NAMES)
-                              if host.protocols[index]},
-                "alert_count": host.alert_count,
-            })
-        return result
+        if dirty_only:
+            return [self._serialize(self._hosts[ip]) for ip in self._dirty if ip in self._hosts]
+        return [self._serialize(host) for host in self._hosts.values()]
+
+    def clear_dirty(self):
+        """Clear dirty-host markers after persistence."""
+        self._dirty.clear()
 
 
 _PROTOCOL_NAMES = ("DNS", "TCP", "UDP", "ICMP", "ARP", "Other")

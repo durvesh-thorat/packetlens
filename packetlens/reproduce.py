@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .evaluate import benchmark, evaluate, print_report
+from .evaluate import benchmark, evaluate, import_research, print_report
 from .provenance import build_meta
 
 
@@ -109,7 +109,8 @@ def _run_flows(data_dir, output_dir, write, command_line):
         print(f"\nSKIPPED flows_real.json: missing dataset file(s): {', '.join(missing)}")
         return
     try:
-        from .flows import evaluate_flows, print_report
+        flows = import_research("flows")
+        evaluate_flows, print_report = flows.evaluate_flows, flows.print_report
     except RuntimeError as exc:
         print(f"\nSKIPPED flows_real.json: {exc}")
         return
@@ -167,7 +168,16 @@ def _run_flowmodels(data_dir, output_dir, write, command_line):
             print(f"\nSKIPPED {output_name}: {reason}")
         return
 
-    from .flowmodel import run_experiment
+    try:
+        flowmodel = import_research("flowmodel")
+    except RuntimeError as exc:
+        for output_name in ("flowmodel_real.json", "flowmodel_audit.json"):
+            if bot_available:
+                print(f"\nSKIPPED {output_name}: {exc}")
+        for output_name in attack_files:
+            print(f"\nSKIPPED {output_name}: {exc}")
+        return
+    run_experiment = flowmodel.run_experiment
 
     if bot_available:
         bot_meta = _meta(command_line, [bot_path], {

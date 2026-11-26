@@ -108,7 +108,7 @@ def render_report(store, title="PacketLens Technical Report", policy=None):
         f"<td>{_escape(host['packets_in'] + host['packets_out'])}</td>"
         f"<td>{_escape(host['bytes_in'] + host['bytes_out'])}</td>"
         f"<td>{_escape(host['alert_count'])}</td>"
-        f"<td>{_escape(host['last_seen'])}</td>"
+        f"<td>{_escape(_time(host['last_seen']))}</td>"
         "</tr>"
         for host in hosts
     ] or ['<tr><td colspan="5">No host profiles recorded.</td></tr>']

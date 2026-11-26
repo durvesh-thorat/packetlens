@@ -6,9 +6,13 @@ Two kinds of result:
      Alerts on attack-free traffic are false positives, reported per detector.
 Plus a bin-level comparison of volume detectors (z-score vs Isolation Forest).
 """
+import importlib
+import importlib.util
 import json
+import sys
 import time
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from .engine import Engine
 from .parsers import parse_packet
@@ -16,6 +20,19 @@ from .policy import effective_policy
 from .stats import block_bootstrap
 from .synth import generate
 from .timeseries import BinAggregator, EwmaZScoreDetector
+
+
+def import_research(module_name):
+    """Import a module from top-level ``research/`` when running from a repo checkout."""
+    root = Path(__file__).resolve().parents[1]
+    if (root / "research").is_dir() and str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    if importlib.util.find_spec("research") is None:
+        raise RuntimeError(
+            f"research.{module_name} is not available in this installation; "
+            "run from a PacketLens repository checkout"
+        )
+    return importlib.import_module(f"research.{module_name}")
 
 LEAD, SLACK = 2.0, 30.0       # alert may come 2 s before the labelled start or 30 s after the end
 DEFAULT_BENIGN_SEEDS = (101, 102, 103, 104, 105, 106)
@@ -64,10 +81,10 @@ def bin_level(attack_bins, events, benign_bins):
         zflags.append(bool(z.last_flags))
     results = {"zscore_adaptive": _prf(truth, zflags)}
     try:
-        from .ml import IsolationForestDetector
-        clf = IsolationForestDetector().fit(benign_bins)
+        ml = import_research("ml")
+        clf = ml.IsolationForestDetector().fit(benign_bins)
         results["isolation_forest"] = _prf(truth, clf.predict(attack_bins))
-    except RuntimeError:
+    except (ImportError, RuntimeError):
         results["isolation_forest"] = None
     return results
 
