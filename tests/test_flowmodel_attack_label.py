@@ -5,7 +5,7 @@ from pathlib import Path
 
 try:
     from research.flowmodel import load_flow_data
-except RuntimeError:
+except (ImportError, RuntimeError):
     load_flow_data = None
 
 
