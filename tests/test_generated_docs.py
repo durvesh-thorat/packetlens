@@ -1,9 +1,12 @@
 import json
+import re
+import tempfile
 import unittest
 from pathlib import Path
 
+from packetlens import __version__
 from packetlens.policy import default_policy_path, load_policy
-from packetlens.render_results import README_END, README_START, render_readme_section
+from packetlens.render_results import README_END, README_START, render_readme_section, render_results
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,40 +38,54 @@ class GeneratedDocumentationTests(unittest.TestCase):
             readme,
         )
 
-    def test_operations_runbook_exists_and_contains_core_sections(self):
-        ops = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
-        self.assertIn("## 1. Prerequisites and Installation", ops)
-        self.assertIn("## 2. Standard Offline and Pilot Workflows", ops)
-        self.assertIn("## 3. Observability and Health Monitoring", ops)
-        self.assertIn("## 4. Incident Triage Standard Operating Procedure (SOP)", ops)
-        self.assertIn("## 5. Backup, Retention, and Recovery", ops)
-        self.assertIn("## 6. Safe Rollback Runbook", ops)
-        self.assertIn("## 7. Graceful and Emergency Shutdown Runbook", ops)
+    def test_readme_has_no_broken_local_docs_or_roadmap_links(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("](docs/", readme)
+        self.assertNotIn("PRODUCTION_ROADMAP.md", readme)
 
-    def test_pilot_protocol_exists_and_contains_safety_boundary(self):
-        protocol = (ROOT / "docs" / "PILOT_PROTOCOL.md").read_text(encoding="utf-8")
-        self.assertIn("## 1. Alert-Only Observation Protocol", protocol)
-        self.assertIn("## 2. Section 6 Safety & Non-Fabrication Boundary", protocol)
-        self.assertIn("## 3. Independent Source Comparison Methodology", protocol)
-        self.assertIn("## 4. Operator Workload and Resource Usage Review", protocol)
-        self.assertIn("## 5. Operational Checklists", protocol)
+    def test_package_version_matches_pyproject(self):
+        self.assertEqual(__version__, "1.0.0")
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), __version__)
 
-    def test_release_gate_exists_and_contains_criteria_and_risks(self):
-        gate = (ROOT / "docs" / "RELEASE_GATE.md").read_text(encoding="utf-8")
-        self.assertIn("## 1. Executive Summary & Target Scope Boundary", gate)
-        self.assertIn("## 2. Release Gate Criteria Matrix", gate)
-        self.assertIn("## 3. Operational & Security Review Findings", gate)
-        self.assertIn("## 4. Residual Risk Register", gate)
-        self.assertIn("## 5. Go / No-Go Decision Framework & Maintainer Sign-Off", gate)
-        self.assertIn("RR-01", gate)
-        self.assertIn("RR-08", gate)
+    def test_render_results_skips_missing_docs_dir_unless_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            readme = root / "README.md"
+            readme.write_text(
+                f"# Test\n\n{README_START}\nstale\n{README_END}\n",
+                encoding="utf-8",
+            )
+            docs_results = root / "docs" / "RESULTS.md"
 
-    def test_pilot_results_exists_and_contains_metrics(self):
-        results = (ROOT / "docs" / "PILOT_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("391,244", results)
-        self.assertIn("64,097", results)
-        self.assertIn("volumetric", results)
-        self.assertIn("## 6. Known Limitations & Non-Generalization Boundaries", results)
+            written_docs, written_readme = render_results(
+                results_dir=ROOT / "results",
+                readme_path=readme,
+                results_path=docs_results,
+            )
+            self.assertIsNone(written_docs)
+            self.assertEqual(written_readme, readme)
+            self.assertFalse(docs_results.parent.exists())
+            updated = readme.read_text(encoding="utf-8")
+            self.assertIn(render_readme_section().strip(), updated)
+
+            written_docs, _ = render_results(
+                results_dir=ROOT / "results",
+                readme_path=readme,
+                results_path=docs_results,
+                write_docs=True,
+            )
+            self.assertEqual(written_docs, docs_results)
+            self.assertTrue(docs_results.is_file())
+
+            written_docs, _ = render_results(
+                results_dir=ROOT / "results",
+                readme_path=readme,
+                results_path=docs_results,
+            )
+            self.assertEqual(written_docs, docs_results)
 
 
 if __name__ == "__main__":

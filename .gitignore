@@ -1,15 +1,27 @@
+# Python & packaging
 __pycache__/
-*.pcap
-hf_pcaps/
-*.db
-*.db-wal
-*.db-shm
+*.py[cod]
 *.egg-info/
+build/
+dist/
+.pytest_cache/
 .venv*/
+
+# Local captures, databases & generated demo artifacts
+*.pcap
+*.pcapng
+*.db*
+captures/
+hf_pcaps/
 cicids2017_traffic_label/
 *.csv
-temp.py
+demo.events.json
+screenshots/
 results/*.pcap
-review/
-captures/
+temp.py
+
+# Local-only documentation, roadmap & agent scratch state
+docs/
+PRODUCTION_ROADMAP.md
 .agents/
+review/

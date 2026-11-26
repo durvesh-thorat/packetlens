@@ -1,108 +1,86 @@
 # PacketLens
 
-PacketLens is a Python network-traffic analyzer for packet captures and authorized live monitoring. It decodes supported link and network protocols, detects selected network behaviors, and records alerts for review. Its local dashboard and HTML reporting tools make capture summaries, incidents, hosts, policies, and evaluation results accessible without a third-party runtime dependency.
+**PacketLens v1.0.0** is a network traffic analyzer built from scratch in Python. Its core package uses only the Python standard library to parse PCAP and PCAPNG captures (as well as authorized Linux live interfaces), decode link/network/transport headers byte-by-byte, detect behavioral and volumetric anomalies, persist incidents and host profiles to SQLite, and serve a local operational dashboard and standalone HTML reports.
+
+## Highlights
+
+- **Zero-dependency core:** `packetlens` runs on Python 3.10+ with no third-party runtime packages.
+- **PCAP + PCAPNG parsing:** Supports classic PCAP (v2.4, microsecond/nanosecond timestamps) and PCAPNG (`SHB`, `IDB`, `EPB`, `SPB` with `if_tsresol` resolution) over Ethernet (`1`) and Linux cooked (`113`) frames, including stacked 802.1Q/802.1ad QinQ VLAN tags and bounded IPv6 extension header traversal.
+- **Signature & volume detection:** Built-in `port_scan`, `syn_flood`, `dns_tunnel`, `arp_spoof`, and `horizontal_scan` detectors plus an experimental EWMA z-score `volumetric` detector controlled by validated JSON policy rules.
+- **Operational triage & reporting:** WAL-mode SQLite persistence with grouped incident lifecycles (`open` → `acknowledged` → `closed`), audit logs, host traffic/port inventories, retention pruning, backups, and CSP-hardened standalone HTML exports.
+- **Local dashboard:** Loopback-bound HTTP UI with dark/light themes, real-time traffic timelines, incident evidence views, host profiles, policy inspection, and evaluation metrics.
+
+## Dashboard
+
+Replay a capture locally (prints a per-run bearer token for state-changing actions):
+
+```bash
+python -m packetlens serve --pcap demo.pcap --loop
+```
+
+### Traffic Overview
+![PacketLens Overview](assets/overview.png)
+
+### Incident Triage & Evidence
+![PacketLens Incidents](assets/incidents.png)
+
+### Host Inventory
+![PacketLens Hosts](assets/hosts.png)
 
 ## Quick start
 
-Python 3.10 or newer:
+Requires Python 3.10 or newer:
 
 ```bash
 python -m pip install -e .
 python -m unittest discover -s tests -v
+```
+
+Generate a synthetic capture, analyze it into SQLite, export an HTML report, and inspect it in the dashboard:
+
+```bash
 python -m packetlens generate demo.pcap
-python -m packetlens analyze demo.pcap
+python -m packetlens analyze demo.pcap --db packetlens.db
+python -m packetlens report --db packetlens.db --out report.html
 python -m packetlens serve --pcap demo.pcap --loop
 ```
 
-The core package uses only the Python standard library. The optional flow experiments require pandas, NumPy, and
-scikit-learn:
+Analyze an existing `.pcap` or `.pcapng` capture directly:
 
 ```bash
-python -m pip install -e ".[ml]"
-python -m packetlens reproduce --skip-real
-python -m packetlens reproduce --data-dir cicids2017_traffic_label
+python -m packetlens analyze capture.pcapng --db packetlens.db
+python -m packetlens incidents list --db packetlens.db
 ```
-
-`reproduce` is a dry run unless `--write` is supplied. The flow commands skip cleanly when required data files are
-missing. CIC-IDS2017 CSVs are not included; obtain them from the
-[CIC-IDS2017 dataset page](https://www.unb.ca/cic/datasets/ids-2017.html) and place the files in
-`cicids2017_traffic_label/`. Cite Sharafaldin, Lashkari, and Ghorbani, “Toward Generating a New Intrusion Detection
-Dataset and Intrusion Traffic Characterization,” ICISSP 2018, when using the dataset.
 
 ## Architecture
 
 ```text
-capture -> parser -> detectors/policy -> store -> dashboard/report
+capture (PCAP / PCAPNG / Linux AF_PACKET)
+  -> byte-level parser (Ethernet / Linux SLL / VLAN QinQ / IPv4 / IPv6 / TCP / UDP / ICMP / ARP / DNS)
+  -> detectors & policy engine
+  -> SQLite WAL store (incidents, alerts, hosts, minute stats, capture runs)
+  -> HTTP dashboard & standalone HTML report
 ```
 
-Captures can come from a pcap file or authorized Linux live capture. The parser decodes Ethernet and Linux cooked
-frames; detectors evaluate packet-level and volume signals; policy controls enabled rules and alert/log actions;
-SQLite stores incidents and summaries; the dashboard serves a local operations UI, while `packetlens report`
-exports a standalone HTML report.
+### Policy configuration
 
-## Features and status
-
-* **Packet analysis — available:** pcap read/write, Ethernet and Linux cooked link types, IPv4/IPv6, TCP, UDP, ICMP,
-  ARP, and DNS question parsing.
-* **Detection — available:** TCP port probing, SYN floods, DNS-tunnel-like queries, ARP mapping changes, horizontal
-  scans, and per-second traffic-volume anomalies.
-* **Policy — available:** validated JSON rules, enabled/disabled state, alert/log action, thresholds, cooldowns,
-  and source/destination allowlists. The packaged default is
-  [`packetlens/policies/default.json`](packetlens/policies/default.json); a unit test checks this reference and
-  validates the file.
-* **Persistence and review — available:** bounded SQLite storage (30-day retention default for closed records), incident status workflow, host summaries,
-  dashboard, and self-contained HTML reports.
-* **Synthetic evaluation — available:** seeded labelled packet generation, detector evaluation, and throughput
-  benchmark.
-* **CIC-IDS2017 evaluation — offline and optional:** one-minute flow-series experiments and per-flow classifiers.
-  Their scope and evidence limits are documented in the evaluation protocol and limitations.
-
-Classic pcap captures with a partial record header or packet payload, or a captured packet length greater than the
-original packet length or a nonzero global-header snaplen, are rejected with an error before packet data is read. The
-reader rejects an unsupported pcap link type before packet records are read; `PcapWriter` accepts only Ethernet (1)
-and Linux cooked (113), and raises `PcapError` for other link types before opening the output file. A global-header
-snaplen of zero imposes no
-captured-length bound on the reader. A captured length smaller than the original length is valid when it is within
-snaplen (snap-truncated capture); an empty capture with a complete global header is also valid.
-Only global-header version 2.4 is supported; other major/minor versions are rejected before record reads. Timestamp
-fractions at or above 1,000,000 in microsecond captures or 1,000,000,000 in nanosecond captures are rejected. For a
-nonzero configured snaplen, `PcapWriter` rejects larger packet data rather than truncating it. Separately, the
-PacketLens-specific `PcapWriter(snaplen=0)` behavior is to write zero to the global-header snaplen and accept packets
-without truncating them. Pcapng is not supported.
-
-The flow-level machine learning experiments (Isolation Forest, Random Forest, Granite Time Series) run offline on CIC-IDS2017 flow tables. They are not part of the live packet pipeline.
-
-## Dashboard
-
-Replay a capture locally:
+Detection rules, thresholds, cooldowns, allowlists, and `alert`/`log` actions are validated against [`packetlens/policies/default.json`](packetlens/policies/default.json):
 
 ```bash
-python -m packetlens serve --pcap demo.pcap --loop
+python -m packetlens policy validate packetlens/policies/default.json
+python -m packetlens policy show
 ```
 
-The server prints its generated access token at startup. The dashboard includes overview, incident, host, detection
-quality, and policy views. All views feature responsive layouts and toggleable dark and light themes.
+### Store maintenance
 
-### Live Telemetry Overview
-![PacketLens Overview](docs/screenshots/overview-1440x900-dark.png)
+```bash
+python -m packetlens store backup --db packetlens.db --out packetlens-backup.db
+python -m packetlens store prune --db packetlens.db --days 30
+```
 
-### Incident Triage & Forensic Timeline
-![PacketLens Incidents](docs/screenshots/incidents-1440x900-light.png)
+## Evaluation results
 
-### Host Inventory & Traffic Profiles
-![PacketLens Hosts](docs/screenshots/hosts-1440x900-dark.png)
-
-### Detection Policy Management
-![PacketLens Policies](docs/screenshots/policies-1440x900-light.png)
-
-### Empirical Quality & ROC Evaluation
-![PacketLens Quality Evaluation](docs/screenshots/quality-evaluation-1440x900-dark.png)
-
-## Generated evaluation results
-
-The tables below are generated from `results/*.json` by `python -m packetlens render-results`. Do not edit the
-generated section by hand; the test suite checks it against freshly rendered output. The full tables, run provenance,
-and caveats are in [`docs/RESULTS.md`](docs/RESULTS.md).
+Headline results below are rendered from `results/*.json` via `python -m packetlens render-results` and verified by `tests/test_generated_docs.py`:
 
 <!-- RESULTS:START -->
 ### Current evidence
@@ -117,64 +95,43 @@ and caveats are in [`docs/RESULTS.md`](docs/RESULTS.md).
 | flowmodel_ddos.json | DDoS Random Forest: P=0.9997 [0.999048, 0.999886] (n=54), R=0.9988 [0.994816, 0.999952] (n=54), F1=0.9992 [0.997058, 0.999844] (n=54). Exact duplicates: DDoS 0.000121, BENIGN 0.043571; duplicate-free test P=0.9997, R=0.9988 (n=88158). |
 <!-- RESULTS:END -->
 
-The generated PortScan and DDoS rows place per-class exact-duplicate rates and duplicate-free test precision/recall
-beside the near-perfect headline scores. Those results should not be read without their duplicate checks.
+## Offline ML research (`research/`)
 
-Granite was scored on the single per-minute `flows` series while the other methods use six features. The cleaner
-held-out-machine Bot diagnostic retained recall of 0.96, consistent with the label-window audit; this is not proof
-that the labels are valid or that the model generalizes.
+The flow-level machine learning experiments (Isolation Forest, Random Forest, Granite Time Series) run offline on CIC-IDS2017 flow tables. They are not part of the live packet pipeline.
 
-See the [evaluation protocol](docs/EVALUATION_PROTOCOL.md) for tasks, splits, false-alarm budgets, label audits, and
-bootstrap intervals, and [limitations](docs/LIMITATIONS.md) for evidence boundaries.
+Offline research code lives in the top-level `research/` directory (`research/flows.py`, `research/flowmodel.py`, `research/ml.py`), keeping the packaged `packetlens` runtime free of ML dependencies. To run reproduction experiments from a repository checkout:
 
-## Research results (offline)
+```bash
+python -m pip install -e ".[ml]"
+python -m packetlens reproduce --skip-real
+python -m packetlens reproduce --data-dir cicids2017_traffic_label
+```
 
-Machine learning in PacketLens is strictly an **offline research module**. It is not part of the supported product, and no new ML work is planned. The core supported product is rule-based detection plus the EWMA volume detector.
+`reproduce` performs a dry run unless `--write` is passed and skips cleanly when CIC-IDS2017 CSVs are absent. Obtain the dataset from the [CIC-IDS2017 dataset page](https://www.unb.ca/cic/datasets/ids-2017.html), place CSVs in `cicids2017_traffic_label/`, and cite Sharafaldin, Lashkari, and Ghorbani, "Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization," ICISSP 2018.
 
-The flow-level machine learning experiments (`packetlens/flows.py`, `packetlens/flowmodel.py`, `packetlens/ml.py`) evaluate offline models (Isolation Forest, Random Forest, Granite Time Series) on historical CIC-IDS2017 flow tables. They are not part of the live or offline packet processing pipeline. A future repository reorganisation is proposed to move these research scripts into a dedicated `research/` or `experiments/` directory to decouple research experiments from core package code.
+Key experimental caveats recorded in `results/*.json`:
+- **Duplicate contamination:** High headline scores on PortScan and DDoS splits are heavily inflated by exact duplicate feature rows between train and test partitions; duplicate-free checks are reported alongside every score.
+- **Label/feature leakage:** Bot diagnostics show sensitivity to flow-window artifacts and source-IP distribution rather than generalizable traffic structure.
+- **Granite context window:** Zero-shot Granite time-series evaluation scores only the single per-minute flow series after context warm-up.
 
-Key offline research findings:
-* **Duplicate contamination:** Initial high benchmark scores on CIC-IDS2017 flow data were driven by exact duplicate records between train and test splits (e.g. 98.9% duplicate rate on PortScan). Duplicate-free evaluation shows significantly lower recall on clean test sets.
-* **Feature attribution:** Classifiers relied heavily on flow identification features rather than generalizable traffic patterns.
-* **Granite time series:** Evaluated on the single per-minute flow series; first 90 attack bins are unscored due to context length requirements.
+## Security & limitations
 
-Full methodology, audit details, and caveats are documented in [docs/RESULTS.md](docs/RESULTS.md), [docs/EVALUATION_PROTOCOL.md](docs/EVALUATION_PROTOCOL.md), and [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
-
-## Known limitations
-
-* **Capture format:** Classic PCAP (version 2.4, nanosecond or microsecond timestamps) with Ethernet (link type 1) and Linux cooked (link type 113) frames only. Pcapng and other link types are rejected before packet reads and must be converted externally (e.g. `editcap -F pcap`).
-* **Platform scope:** Designed and tested for on-demand offline analysis and replay on a single Windows 11 workstation. Windows live packet capture driver is not supported (live capture requires Linux `AF_PACKET`).
-* **Tested throughput:** Offline pipeline tested up to 99,874 packets/s on Windows 11 (in-memory parse tested up to 250,014 packets/s; target is >= 50,000 packets/s without store queue drops; never guaranteed).
-* **Detection boundaries:** Default signature rules cover TCP SYN port scans, SYN floods, DNS tunneling, ARP spoofing, and horizontal scans. Non-SYN scans (FIN, NULL, Xmas, UDP), DNS rate floods, and Slowloris are outside packet signature coverage.
-* **Volumetric anomaly detection:** The EWMA volume detector (`EwmaZScoreDetector`) is marked experimental in `packetlens/policies/default.json` due to false alarms on bursty benign traffic (7.0 FP/hr synthetic, 196.8 FP/hr on bursty PCAP).
-* **Network security:** The local HTTP dashboard server is unencrypted and enforces loopback-only binding (`127.0.0.1:8000`). Remote network exposure requires an operator-configured TLS reverse proxy with mutual authentication.
-* **Data retention:** Local SQLite database with Write-Ahead Logging. Closed incidents, alerts, minute metrics, and capture summaries default to 30-day retention pruning (`packetlens store prune --days 30`). Active and open incidents are preserved.
-* **Research ML boundary:** Machine learning classifiers are offline research modules only and are excluded from the supported monitoring product.
-
-## Security and authorized use
-
-* The dashboard binds to `127.0.0.1` by default. Its per-run token is printed to the terminal and is required for
-  incident status changes. Binding to a non-loopback address exposes captured data; use a trusted network and
-  protect the token. The built-in HTTP server does not provide TLS.
-* Network addresses, DNS names, packet contents, and incident details can be attacker-controlled. Treat displayed
-  and exported traffic data as untrusted; avoid sharing captures or reports that contain sensitive information.
-* Live capture requires Linux `AF_PACKET` and suitable privileges. Capture only networks and devices you own or are
-  explicitly authorized to monitor, and follow applicable privacy and interception laws.
+- **Loopback-first HTTP server:** `packetlens serve` binds to `127.0.0.1:8080` by default without TLS and requires its startup bearer token for mutating API calls. Using `--allow-remote` exposes unencrypted HTTP and should only be done behind an authenticated TLS reverse proxy on a trusted network.
+- **Untrusted capture inputs:** Packet payloads, addresses, DNS names, and alert details are treated as untrusted and escaped in both the dashboard and exported HTML reports (`Content-Security-Policy` enforced).
+- **Platform & live capture:** Live interface capture (`packetlens live` / `packetlens serve --iface`) uses Linux `AF_PACKET` sockets and requires appropriate privileges. On Windows and macOS, PacketLens operates on offline PCAP/PCAPNG files and capture replay. Monitor only networks you own or are explicitly authorized to inspect.
+- **Detection coverage:** Built-in signature rules target TCP SYN port scans, SYN floods, DNS tunneling patterns, ARP mapping changes, and horizontal scans. The `volumetric` EWMA detector is marked `experimental` in the default policy due to false alarms on bursty benign traffic.
 
 ## Development
-
-Run the tests:
 
 ```bash
 python -m unittest discover -s tests -v
 node --check packetlens/static/app.js
+git -c core.whitespace=cr-at-eol diff --check
 ```
 
-CI runs the test suite on Python 3.10 through 3.13 without optional ML dependencies and runs an additional
-pandas/scikit-learn-enabled test job. Granite is not part of CI. CI also lists the ten largest tracked files and
-fails if any exceeds 5 MB.
+CI verifies the test suite across Python 3.10–3.13 without optional dependencies, in a `pandas`-only environment without `scikit-learn`, and with full `.[ml]` extras installed, alongside JS syntax checks, whitespace checks, CLI smoke checks, and a 5 MiB tracked-file limit.
 
-To enable the repository pre-push check for GitHub's 100 MiB file limit:
+To enable the local pre-push hook enforcing GitHub's 100 MiB blob check:
 
 ```bash
 git config core.hooksPath .githooks
@@ -183,23 +140,16 @@ git config core.hooksPath .githooks
 ## Repository layout
 
 ```text
-packetlens/pcap.py             pcap reader and writer
-packetlens/parsers.py          byte-level protocol decoders
-packetlens/detectors.py        packet-level detectors
-packetlens/timeseries.py       per-second bins and EWMA volume detector
-packetlens/policy.py           JSON policy loading and validation
-packetlens/engine.py           packet processing and detector orchestration
-packetlens/store.py            SQLite incidents, hosts, and capture summaries
-packetlens/dashboard.py        local HTTP API and dashboard server
-packetlens/report.py           standalone HTML report generation
-packetlens/flows.py            offline per-minute CIC-IDS2017 experiments
-packetlens/flowmodel.py        offline per-flow CIC-IDS2017 experiments
-packetlens/stats.py            standard-library block bootstrap intervals
-packetlens/reproduce.py        reproducible evaluation orchestration
-packetlens/render_results.py   generated results documentation
-packetlens/static/             dashboard HTML, JavaScript, and CSS
-packetlens/policies/           packaged default policy
-results/                       evaluation JSON and run provenance
-docs/                          protocol, limitations, results, screenshots
-tests/                         unit and integration tests
+packetlens/                    Core zero-dependency packet analyzer, store, CLI, and web UI
+  policies/default.json        Packaged default detection policy
+  static/                      Dashboard HTML, CSS, and JavaScript
+research/                      Offline CIC-IDS2017 ML experiments (not part of live pipeline)
+results/                       Published evaluation JSONs and provenance metadata
+scripts/                       Hugging Face PCAP validation and screenshot helpers
+assets/                        Dashboard screenshots for README
+tests/                         Unit, integration, reliability, security, and doc tests
 ```
+
+## License
+
+Released under the [MIT License](LICENSE).

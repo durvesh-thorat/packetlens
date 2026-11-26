@@ -379,17 +379,17 @@ def render_readme_section(results_dir=RESULTS_DIR):
 
 
 def render_results(results_dir=RESULTS_DIR, readme_path=README_PATH,
-                   results_path=RESULTS_PATH):
-    results_dir, readme_path, results_path = (
-        Path(results_dir), Path(readme_path), Path(results_path))
-    reports = []
-    for path in sorted(results_dir.glob("*.json")):
-        report = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(report, dict):
-            report = {"result": report}
-        reports.append(_render_one(path.name, report))
-    markdown = "# PacketLens evaluation results\n\n" + (
-        "\n\n".join(reports) if reports else "_No result JSON files are available._")
+                   results_path=RESULTS_PATH, write_docs=None):
+    results_dir, readme_path = Path(results_dir), Path(readme_path)
+    results_path = Path(results_path) if results_path is not None else None
+    should_write_docs = (
+        bool(write_docs)
+        if write_docs is not None
+        else (results_path is not None and results_path.parent.is_dir())
+    )
+    if should_write_docs and results_path is None:
+        raise ValueError("results_path is required when write_docs is True")
+
     section = render_readme_section(results_dir)
     readme = readme_path.read_text(encoding="utf-8")
     if readme.count(README_START) != 1 or readme.count(README_END) != 1:
@@ -399,7 +399,20 @@ def render_results(results_dir=RESULTS_DIR, readme_path=README_PATH,
     if start > end:
         raise ValueError(f"{readme_path}: generated-results markers are out of order")
     updated = readme[:start] + "\n" + section + "\n" + readme[end:]
-    results_path.parent.mkdir(parents=True, exist_ok=True)
-    results_path.write_text(markdown.rstrip() + "\n", encoding="utf-8")
-    readme_path.write_text(updated, encoding="utf-8")
-    return results_path, readme_path
+
+    written_results = None
+    if should_write_docs:
+        reports = []
+        for path in sorted(results_dir.glob("*.json")):
+            report = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(report, dict):
+                report = {"result": report}
+            reports.append(_render_one(path.name, report))
+        markdown = "# PacketLens evaluation results\n\n" + (
+            "\n\n".join(reports) if reports else "_No result JSON files are available._")
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path.write_text(markdown.rstrip() + "\n", encoding="utf-8", newline="\n")
+        written_results = results_path
+
+    readme_path.write_text(updated, encoding="utf-8", newline="\n")
+    return written_results, readme_path

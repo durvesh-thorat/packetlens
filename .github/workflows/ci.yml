@@ -16,12 +16,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install core package without optional dependencies
+        run: python -m pip install .
       - name: Run tests without optional dependencies
         run: python -m unittest discover -s tests -v
         timeout-minutes: 5
-      - name: Check dashboard JavaScript syntax
-        run: node --check packetlens/static/app.js
-      - name: Report tracked file sizes and enforce 5 MiB limit
+      - name: Check whitespace and JavaScript syntax
+        run: |
+          git -c core.whitespace=cr-at-eol diff --check
+          git -c core.whitespace=cr-at-eol diff --check "$(git hash-object -t tree /dev/null)"
+          node --check packetlens/static/app.js
+          find packetlens/static -name '*.js' -exec node --check {} +
+      - name: Run CLI smoke checks and verify docs decoupling
+        run: |
+          python -m packetlens policy validate packetlens/policies/default.json
+          python -m packetlens generate /tmp/ci-smoke.pcap --duration 10 --seed 1
+          python -m packetlens analyze /tmp/ci-smoke.pcap --db /tmp/ci-smoke.db
+          python -m packetlens report --db /tmp/ci-smoke.db --out /tmp/ci-smoke.html
+          python -m packetlens store backup --db /tmp/ci-smoke.db --out /tmp/ci-smoke-backup.db
+          python -m packetlens store prune --db /tmp/ci-smoke.db --days 30
+          python -m packetlens render-results
+          test ! -e docs/RESULTS.md
+          git diff --exit-code README.md
+          rm -f /tmp/ci-smoke.pcap /tmp/ci-smoke.events.json /tmp/ci-smoke.db* /tmp/ci-smoke-backup.db /tmp/ci-smoke.html
+      - name: Enforce repository hygiene and 5 MiB tracked file limit
         run: |
           python - <<'PY'
           import os
@@ -33,6 +51,14 @@ jobs:
           )
           paths = [path.decode("utf-8", errors="surrogateescape")
                    for path in result.stdout.split(b"\0") if path]
+          forbidden = [
+              p for p in paths
+              if p == "PRODUCTION_ROADMAP.md"
+              or p.startswith(("docs/", ".agents/", ".github/agents/", "review/", "screenshots/"))
+          ]
+          if forbidden:
+              print("Forbidden local/agent paths are tracked in git:", forbidden, file=sys.stderr)
+              raise SystemExit(1)
           sizes = sorted(
               ((os.path.getsize(path), path) for path in paths if os.path.isfile(path)),
               reverse=True,
@@ -47,6 +73,19 @@ jobs:
                   print(f"{size / 1_000_000:.2f} MB  {path}", file=sys.stderr)
               raise SystemExit(1)
           PY
+
+  partial-ml-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pandas without scikit-learn
+        run: python -m pip install numpy pandas
+      - name: Run tests in pandas-only environment
+        run: python -m unittest discover -s tests -v
+        timeout-minutes: 10
 
   optional-ml-tests:
     runs-on: ubuntu-latest
